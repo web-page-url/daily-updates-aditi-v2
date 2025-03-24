@@ -1,0 +1,39 @@
+Aditi dashboard The Task to be done :
+
+Dashboard for Historical Data
+
+Users can view information from previous days.
+Team-Based Data Restriction
+
+Data should be accessible only to members of the corresponding team.
+Manager Access & Download
+
+Managers can view and download data specific to their team.
+Pre-Populated User Details
+
+The name and email fields should be pre-filled and set as read-only.
+Blockers Section
+
+Provide a select box for blockers.
+If selected, display a text area for entering blocker details; otherwise, keep it NULL.
+Dependency Field
+
+If selected, allow the user to enter:
+
+Dependency details
+Expected resolution date
+Blockers: Risks, Issues, Dependencies
+
+If a blocker is selected, allow users to:
+
+Choose a type (Risk, Issue, Dependency, Blocker).
+Enter a description.
+Specify a resolution date.
+Blocker Input Section
+
+Users can:
+
+Enter blocker details.
+Select a category (Issue, Dependency, Risk).
+Choose a resolution date.
+Click a "+" button to add multiple entries.
