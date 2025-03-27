@@ -25,6 +25,7 @@ export default function DailyUpdateForm({
   isManager 
 }: DailyUpdateFormProps) {
   const [teams, setTeams] = useState<Team[]>([]);
+  const [loadingTeams, setLoadingTeams] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState('');
   const [currentDate, setCurrentDate] = useState('');
   const [formData, setFormData] = useState({
@@ -44,6 +45,7 @@ export default function DailyUpdateForm({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAnimation, setShowAnimation] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchUserTeams();
@@ -59,26 +61,55 @@ export default function DailyUpdateForm({
 
   const fetchUserTeams = async () => {
     try {
+      setLoadingTeams(true);
+      console.log('Fetching teams for user email:', userEmail);
+      
+      // First try to get teams the user is a member of
       const { data: teamMemberships, error: membershipError } = await supabase
         .from('aditi_team_members')
         .select('team_id')
         .eq('employee_email', userEmail);
 
-      if (membershipError) throw membershipError;
+      if (membershipError) {
+        console.error('Error fetching team memberships:', membershipError);
+      }
 
+      // If user has team memberships, get those teams
       if (teamMemberships && teamMemberships.length > 0) {
+        console.log('User has team memberships:', teamMemberships);
         const teamIds = teamMemberships.map(tm => tm.team_id);
         const { data: teamsData, error: teamsError } = await supabase
           .from('aditi_teams')
           .select('*')
           .in('id', teamIds);
 
-        if (teamsError) throw teamsError;
+        if (teamsError) {
+          console.error('Error fetching specific teams:', teamsError);
+          throw teamsError;
+        }
         setTeams(teamsData || []);
+        console.log('Teams loaded from memberships:', teamsData);
+      } else {
+        // If no memberships found, fetch all teams
+        console.log('No team memberships found, fetching all teams');
+        const { data: allTeams, error: allTeamsError } = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .order('team_name', { ascending: true });
+
+        if (allTeamsError) {
+          console.error('Error fetching all teams:', allTeamsError);
+          throw allTeamsError;
+        }
+        
+        setTeams(allTeams || []);
+        console.log('All teams loaded:', allTeams);
       }
     } catch (error) {
       console.error('Error fetching teams:', error);
       toast.error('Failed to load teams');
+    } finally {
+      setLoadingTeams(false);
     }
   };
 
@@ -108,32 +139,85 @@ export default function DailyUpdateForm({
     setBlockers(blockers.filter(blocker => blocker.id !== id));
   };
 
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    
+    if (!formData.employee_name.trim()) {
+      errors.employee_name = "Employee name is required";
+    }
+    
+    if (!formData.employee_id.trim()) {
+      errors.employee_id = "Employee ID is required";
+    }
+    
+    if (!formData.email_address.trim()) {
+      errors.email_address = "Email address is required";
+    } else if (!/\S+@\S+\.\S+/.test(formData.email_address)) {
+      errors.email_address = "Email address is invalid";
+    }
+    
+    if (!selectedTeam) {
+      errors.team = "Team selection is required";
+    }
+    
+    if (!formData.tasks_completed.trim()) {
+      errors.tasks_completed = "Tasks completed is required";
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTeam) {
-      toast.error('Please select a team');
+    console.log('Form submission started');
+    console.log('Form data:', formData);
+    console.log('Selected team:', selectedTeam);
+    console.log('Blockers:', blockers);
+    
+    // Validate form
+    if (!validateForm()) {
+      console.log('Form validation failed:', formErrors);
+      toast.error('Please fill all required fields correctly');
       return;
     }
 
     setIsSubmitting(true);
     try {
+      console.log('Submitting daily update:', {
+        formData,
+        selectedTeam,
+        blockers,
+      });
+      
       // If there are no blockers, create a single update without blocker info
       if (blockers.length === 0) {
-        const { error } = await supabase
+        console.log('Submitting single update without blockers');
+        const payload = {
+          employee_name: formData.employee_name,
+          employee_id: formData.employee_id,
+          employee_email: formData.email_address,
+          team_id: selectedTeam,
+          tasks_completed: formData.tasks_completed,
+          status: formData.status,
+          additional_notes: formData.additional_notes
+        };
+        console.log('Payload being sent to Supabase:', payload);
+        
+        const { data, error } = await supabase
           .from('aditi_daily_updates')
-          .insert([{
-            employee_name: formData.employee_name,
-            employee_id: formData.employee_id,
-            employee_email: formData.email_address,
-            team_id: selectedTeam,
-            tasks_completed: formData.tasks_completed,
-            status: formData.status,
-            additional_notes: formData.additional_notes
-          }]);
+          .insert([payload])
+          .select();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error submitting daily update:', error);
+          throw new Error(`Database error: ${error.message}`);
+        }
+        
+        console.log('Daily update submitted successfully:', data);
       } else {
         // Insert each blocker as a separate daily update
+        console.log(`Submitting ${blockers.length} updates with blockers`);
         const updates = blockers.map(blocker => ({
           employee_name: formData.employee_name,
           employee_id: formData.employee_id,
@@ -146,12 +230,21 @@ export default function DailyUpdateForm({
           blocker_description: blocker.description,
           expected_resolution_date: blocker.expected_resolution_date,
         }));
-
-        const { error } = await supabase
+        
+        console.log('Payload being sent to Supabase:', updates);
+        
+        const { data, error } = await supabase
           .from('aditi_daily_updates')
-          .insert(updates);
+          .insert(updates)
+          .select();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error submitting daily updates with blockers:', error);
+          console.error('Error details:', JSON.stringify(error));
+          throw new Error(`Database error: ${error.message}`);
+        }
+        
+        console.log('Daily updates with blockers submitted successfully:', data);
       }
 
       toast.success('Daily update submitted successfully!');
@@ -169,9 +262,11 @@ export default function DailyUpdateForm({
       setTimeout(() => setShowAnimation(false), 5000);
     } catch (error) {
       console.error('Error submitting update:', error);
-      toast.error('Failed to submit update');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to submit update';
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
+      console.log('Form submission process completed');
     }
   };
 
@@ -181,6 +276,14 @@ export default function DailyUpdateForm({
       ...prev,
       [name]: value
     }));
+    
+    // Clear validation error for this field when value changes
+    if (formErrors[name]) {
+      setFormErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
   };
 
   const handleBlockerChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -189,6 +292,19 @@ export default function DailyUpdateForm({
       ...prev,
       [name]: value
     }));
+  };
+  
+  // Also update team selection to clear errors
+  const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedTeam(e.target.value);
+    
+    // Clear team validation error when value changes
+    if (formErrors.team) {
+      setFormErrors(prev => ({
+        ...prev,
+        team: ''
+      }));
+    }
   };
 
   return (
@@ -221,13 +337,16 @@ export default function DailyUpdateForm({
                   value={formData.employee_name}
                   onChange={handleChange}
                   required
-                  className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white 
+                  className={`w-full bg-[#262d40] border ${formErrors.employee_name ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
                   focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
                   transition-all duration-300 ease-in-out
                   hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                  transform hover:-translate-y-0.5"
+                  transform hover:-translate-y-0.5`}
                   placeholder="Enter your name"
                 />
+                {formErrors.employee_name && (
+                  <p className="mt-1 text-sm text-red-500">{formErrors.employee_name}</p>
+                )}
               </div>
 
               <div className="group">
@@ -241,13 +360,16 @@ export default function DailyUpdateForm({
                   value={formData.employee_id}
                   onChange={handleChange}
                   required
-                  className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white 
+                  className={`w-full bg-[#262d40] border ${formErrors.employee_id ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
                   focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
                   transition-all duration-300 ease-in-out
                   hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                  transform hover:-translate-y-0.5"
+                  transform hover:-translate-y-0.5`}
                   placeholder="Enter your employee ID"
                 />
+                {formErrors.employee_id && (
+                  <p className="mt-1 text-sm text-red-500">{formErrors.employee_id}</p>
+                )}
               </div>
 
               <div className="group">
@@ -261,39 +383,70 @@ export default function DailyUpdateForm({
                   value={formData.email_address}
                   onChange={handleChange}
                   required
-                  className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white 
+                  className={`w-full bg-[#262d40] border ${formErrors.email_address ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
                   focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
                   transition-all duration-300 ease-in-out
                   hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                  transform hover:-translate-y-0.5"
+                  transform hover:-translate-y-0.5`}
                   placeholder="Enter your email address"
                 />
+                {formErrors.email_address && (
+                  <p className="mt-1 text-sm text-red-500">{formErrors.email_address}</p>
+                )}
               </div>
 
               <div className="group">
                 <label htmlFor="team" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
                   Team <span className="text-red-500">*</span>
                 </label>
-                <select
-                  id="team"
-                  name="team"
-                  value={selectedTeam}
-                  onChange={(e) => setSelectedTeam(e.target.value)}
-                  className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white 
-                  focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
-                  transition-all duration-300 ease-in-out
-                  hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                  transform hover:-translate-y-0.5
-                  appearance-none cursor-pointer"
-                  required
-                >
-                  <option value="">Select your team</option>
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {team.team_name}
-                    </option>
-                  ))}
-                </select>
+                {loadingTeams ? (
+                  <div className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white flex items-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Loading teams...</span>
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      id="team"
+                      name="team"
+                      value={selectedTeam}
+                      onChange={handleTeamChange}
+                      className={`w-full bg-[#262d40] border ${formErrors.team ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
+                      focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
+                      transition-all duration-300 ease-in-out
+                      hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
+                      transform hover:-translate-y-0.5
+                      appearance-none cursor-pointer`}
+                      required
+                    >
+                      <option value="">Select your team</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.team_name}
+                        </option>
+                      ))}
+                    </select>
+                    {formErrors.team && (
+                      <p className="mt-1 text-sm text-red-500">{formErrors.team}</p>
+                    )}
+                    {!loadingTeams && teams.length === 0 && (
+                      <div className="mt-2 p-3 bg-yellow-500/20 text-yellow-400 rounded-md">
+                        <p className="flex items-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          No teams available. Please visit the Team Management page to create a team first.
+                        </p>
+                        <a href="/team-management" className="mt-2 inline-block text-white bg-purple-600 hover:bg-purple-700 transition-colors duration-300 rounded-md px-4 py-2 text-sm font-medium">
+                          Go to Team Management
+                        </a>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
 
@@ -307,16 +460,19 @@ export default function DailyUpdateForm({
                 name="tasks_completed"
                 value={formData.tasks_completed}
                 onChange={handleChange}
-                className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white placeholder-gray-400 
+                className={`w-full bg-[#262d40] border ${formErrors.tasks_completed ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white placeholder-gray-400 
                 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
                 transition-all duration-300 ease-in-out
                 hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
                 transform hover:-translate-y-0.5
-                resize-none"
+                resize-none`}
                 rows={4}
                 required
                 placeholder="Describe the tasks you completed today"
               />
+              {formErrors.tasks_completed && (
+                <p className="mt-1 text-sm text-red-500">{formErrors.tasks_completed}</p>
+              )}
             </div>
 
             {/* Blockers Section */}

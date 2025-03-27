@@ -117,18 +117,17 @@ export default function TeamManagement() {
       console.log('Creating new team:', newTeam);
 
       // Check for duplicate team name
-      const { data: existingTeam, error: checkError } = await supabase
+      const { data: existingTeam, error: checkError, count } = await supabase
         .from('aditi_teams')
-        .select('id')
-        .eq('team_name', newTeam.team_name.trim())
-        .single();
+        .select('id', { count: 'exact' })
+        .eq('team_name', newTeam.team_name.trim());
 
-      if (checkError && !checkError.message.includes('No rows found')) {
+      if (checkError) {
         console.error('Error checking for existing team:', checkError);
         throw new Error(`Database error checking team name: ${checkError.message}`);
       }
 
-      if (existingTeam) {
+      if (existingTeam && existingTeam.length > 0) {
         throw new Error('A team with this name already exists');
       }
 
@@ -197,10 +196,14 @@ export default function TeamManagement() {
         .from('aditi_team_members')
         .select('id')
         .eq('team_id', newTeamMember.team_id)
-        .eq('employee_email', newTeamMember.employee_email)
-        .single();
+        .eq('employee_email', newTeamMember.employee_email);
 
-      if (existingEntry) {
+      if (checkError) {
+        console.error('Error checking for existing team member:', checkError);
+        throw new Error(`Database error checking team member: ${checkError.message}`);
+      }
+
+      if (existingEntry && existingEntry.length > 0) {
         throw new Error('This employee is already a member of this team');
       }
 
