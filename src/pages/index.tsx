@@ -9,7 +9,8 @@ export default function Home() {
     userName: '',
     userEmail: '',
     teamName: '',
-    isManager: false
+    isManager: false,
+    reportingManager: ''
   });
 
   // Simulate fetching user data
@@ -21,7 +22,8 @@ export default function Home() {
         userName: 'John Doe',
         userEmail: 'john.doe@example.com',
         teamName: 'Development',
-        isManager: true // Set to true to see manager controls
+        isManager: true, // Set to true to see manager controls
+        reportingManager: 'Indira'
       });
     }, 1000);
   }, []);
@@ -90,9 +92,9 @@ export default function Home() {
       )}
       
       <DailyUpdateForm 
-        reportingManager="Indira" 
         userName={userData.userName}
         userEmail={userData.userEmail}
+        reportingManager={userData.reportingManager || 'Indira'}
         teamName={userData.teamName}
         isManager={userData.isManager}
       />

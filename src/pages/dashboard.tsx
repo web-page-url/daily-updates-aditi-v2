@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, DailyUpdate, TeamMember } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -15,7 +15,6 @@ interface DashboardUser {
 export default function Dashboard() {
   const router = useRouter();
   
-  // Mock user data - in a real app, this would come from authentication
   const [userData, setUserData] = useState<DashboardUser>({
     userName: '',
     userEmail: '',
@@ -24,11 +23,11 @@ export default function Dashboard() {
   });
 
   const [isLoading, setIsLoading] = useState(true);
-  const [historicalData, setHistoricalData] = useState<any[]>([]);
-  const [filteredData, setFilteredData] = useState<any[]>([]);
+  const [historicalData, setHistoricalData] = useState<DailyUpdate[]>([]);
+  const [filteredData, setFilteredData] = useState<DailyUpdate[]>([]);
   const [activeTab, setActiveTab] = useState<'all' | 'recent' | 'blockers'>('all');
   const [selectedTeam, setSelectedTeam] = useState<string>('');
-  const [teams, setTeams] = useState<string[]>([]);
+  const [teams, setTeams] = useState<TeamMember[]>([]);
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
@@ -49,210 +48,135 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  // Simulate fetching user data
   useEffect(() => {
     const getAuthenticatedUser = async () => {
       try {
-        // In a real app, this would check auth session or get data from auth context
-        // For demo purposes, we're using hardcoded data
-        const mockUserData = {
-          userName: 'Anubhav',
-          userEmail: 'john.doe@example.com',
-          teamName: 'Development',
-          isManager: true
-        };
+        const { data: { user }, error } = await supabase.auth.getUser();
         
-        setUserData(mockUserData);
+        if (error) throw error;
         
-        // If not a manager, redirect to main page
-        if (!mockUserData.isManager) {
-          toast.error('You do not have permission to access the dashboard');
-          router.push('/');
-        } else {
-          // Fetch team data as soon as we have the user context
-          await fetchTeams();
-          await fetchData(mockUserData.teamName);
-          setLastRefreshed(new Date());
+        if (user) {
+          // Get user's team information
+          const { data: teamMember, error: teamError } = await supabase
+            .from('aditi_team_members')
+            .select('*, aditi_teams(*)')
+            .eq('employee_email', user.email)
+            .single();
+
+          if (teamError) throw teamError;
+
+          if (teamMember) {
+            setUserData({
+              userName: teamMember.team_member_name,
+              userEmail: user.email || '',
+              teamName: teamMember.aditi_teams.team_name,
+              isManager: teamMember.aditi_teams.manager_email === user.email
+            });
+          }
         }
       } catch (error) {
-        console.error('Error getting user data:', error);
-        toast.error('Error loading user data');
+        console.error('Error getting user:', error);
+        toast.error('Failed to load user data');
       }
     };
-    
-    getAuthenticatedUser();
-  }, [router]);
 
-  // Function to fetch data from Supabase with pagination
+    getAuthenticatedUser();
+  }, []);
+
   const fetchData = async (teamFilter: string = '') => {
-    setIsLoading(true);
     try {
-      // Create pagination options
-      const start = (currentPage - 1) * pageSize;
-      const end = start + pageSize - 1;
-      
+      setIsLoading(true);
       let query = supabase
-        .from('daily_updates')
-        .select('*', { count: 'exact' })
+        .from('aditi_daily_updates')
+        .select('*, aditi_teams(*)')
         .order('created_at', { ascending: false });
-      
-      // Apply date range filter to the query directly
-      if (dateRange.start) {
-        query = query.gte('created_at', `${dateRange.start}T00:00:00`);
-      }
-      
-      if (dateRange.end) {
-        query = query.lte('created_at', `${dateRange.end}T23:59:59`);
-      }
-      
-      // Filter by team if team name is provided
+
       if (teamFilter) {
-        query = query.eq('team', teamFilter);
+        query = query.eq('team_id', teamFilter);
       }
-      
-      // Execute the query with pagination
-      const { data, error, count } = await query
-        .range(start, end);
-      
-      if (error) {
-        console.error('Supabase query error:', error);
-        throw new Error(`Failed to fetch data: ${error.message}`);
-      }
-      
-      // Calculate total pages
-      const totalCount = count || 0;
-      const calculatedTotalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-      setTotalPages(calculatedTotalPages);
-      
-      console.log(`Fetched ${data?.length || 0} records out of ${totalCount} total (page ${currentPage}/${calculatedTotalPages})`);
-      
-      // Extract unique team names
-      const uniqueTeams = Array.from(new Set((data || []).map(item => item.team))).filter(Boolean) as string[];
-      setTeams(uniqueTeams);
-      
-      // Set data
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
       setHistoricalData(data || []);
       setFilteredData(data || []);
-      
-      // Calculate stats
       calculateStats(data || []);
-      
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load dashboard data');
+      toast.error('Failed to load updates');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Function to fetch all teams from Supabase
   const fetchTeams = async () => {
     try {
       const { data, error } = await supabase
-        .from('daily_updates')
-        .select('team')
-        .not('team', 'is', null);
-      
-      if (error) {
-        throw error;
-      }
-      
-      // Extract unique team names
-      const uniqueTeams = Array.from(new Set(data.map(item => item.team))).filter(Boolean) as string[];
-      setTeams(uniqueTeams);
-      
+        .from('aditi_teams')
+        .select('*')
+        .order('team_name', { ascending: true });
+
+      if (error) throw error;
+      setTeams(data || []);
     } catch (error) {
       console.error('Error fetching teams:', error);
-      // Don't show toast for this non-critical operation
+      toast.error('Failed to load teams');
     }
   };
 
-  // Function to calculate statistics
-  const calculateStats = (data: any[]) => {
+  const calculateStats = (data: DailyUpdate[]) => {
     const stats = {
       totalUpdates: data.length,
-      totalBlockers: data.filter(item => item.blockers && item.blockers !== 'null').length,
-      completedTasks: data.filter(item => item.status === 'completed').length,
-      inProgressTasks: data.filter(item => item.status === 'in-progress').length,
-      stuckTasks: data.filter(item => item.status === 'stuck').length
+      totalBlockers: data.filter(update => update.blocker_type).length,
+      completedTasks: data.filter(update => update.status === 'completed').length,
+      inProgressTasks: data.filter(update => update.status === 'in-progress').length,
+      stuckTasks: data.filter(update => update.status === 'blocked').length
     };
-    
     setStats(stats);
   };
 
-  // Function to apply filters
   const applyFilters = () => {
     let filtered = [...historicalData];
-    
-    // Filter by team
+
+    // Apply date range filter
+    filtered = filtered.filter(update => {
+      const updateDate = new Date(update.created_at).toISOString().split('T')[0];
+      return updateDate >= dateRange.start && updateDate <= dateRange.end;
+    });
+
+    // Apply team filter
     if (selectedTeam) {
-      filtered = filtered.filter(item => item.team === selectedTeam);
+      filtered = filtered.filter(update => update.team_id === selectedTeam);
     }
-    
-    // Filter by date range
-    if (dateRange.start && dateRange.end) {
-      try {
-        const startDate = new Date(dateRange.start);
-        const endDate = new Date(dateRange.end);
-        
-        // Add time to end date to include all entries on that day
-        endDate.setHours(23, 59, 59, 999);
-        
-        // Check for valid dates
-        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-          filtered = filtered.filter(item => {
-            const itemDate = new Date(item.created_at);
-            return itemDate >= startDate && itemDate <= endDate;
-          });
-        }
-      } catch (error) {
-        console.error('Error filtering by date:', error);
-        // Continue with other filters if date filtering fails
-      }
+
+    // Apply tab filter
+    switch (activeTab) {
+      case 'recent':
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        filtered = filtered.filter(update => 
+          new Date(update.created_at) >= sevenDaysAgo
+        );
+        break;
+      case 'blockers':
+        filtered = filtered.filter(update => update.blocker_type);
+        break;
     }
-    
-    // Filter by tab
-    if (activeTab === 'recent') {
-      // Only show last 5 days of data
-      const fiveDaysAgo = new Date();
-      fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-      filtered = filtered.filter(item => {
-        try {
-          const itemDate = new Date(item.created_at);
-          return !isNaN(itemDate.getTime()) && itemDate >= fiveDaysAgo;
-        } catch {
-          // Skip this item if date is invalid
-          return false;
-        }
-      });
-    } else if (activeTab === 'blockers') {
-      // Only show items with blockers
-      filtered = filtered.filter(item => {
-        if (!item.blockers || item.blockers === 'null') return false;
-        
-        try {
-          // Try to parse the blockers JSON
-          const blockersArray = JSON.parse(item.blockers);
-          return Array.isArray(blockersArray) && blockersArray.length > 0;
-        } catch {
-          // If it's not valid JSON but has string content, consider it as having blockers
-          return typeof item.blockers === 'string' && item.blockers.trim() !== '';
-        }
-      });
-    }
-    
+
     setFilteredData(filtered);
     calculateStats(filtered);
   };
 
-  // Apply filters whenever filter state changes
   useEffect(() => {
-    if (historicalData.length > 0) {
-      applyFilters();
-    }
-  }, [selectedTeam, dateRange, activeTab, historicalData]);
+    fetchTeams();
+    fetchData();
+  }, []);
 
-  // Toggle row expansion
+  useEffect(() => {
+    applyFilters();
+  }, [activeTab, selectedTeam, dateRange, historicalData]);
+
   const toggleRowExpansion = (id: string) => {
     setExpandedRows(prev => ({
       ...prev,
@@ -260,85 +184,40 @@ export default function Dashboard() {
     }));
   };
 
-  // Export filtered data to CSV
   const exportToCSV = () => {
-    if (!filteredData.length) return;
-    
-    const headers = Object.keys(filteredData[0]).join(',');
-    const csvRows = [headers];
-    
-    for (const row of filteredData) {
-      const values = Object.values(row).map(value => {
-        const stringValue = String(value).replace(/"/g, '""');
-        return `"${stringValue}"`;
-      });
-      csvRows.push(values.join(','));
-    }
-    
-    const csvString = csvRows.join('\n');
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    const headers = [
+      'Date',
+      'Team',
+      'Employee',
+      'Tasks Completed',
+      'Status',
+      'Blockers/Risks/Dependencies',
+      'Expected Resolution',
+      'Additional Notes'
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...filteredData.map(update => [
+        new Date(update.created_at).toLocaleDateString(),
+        teams.find(t => t.id === update.team_id)?.team_name || '',
+        update.employee_email,
+        update.tasks_completed,
+        update.status,
+        update.blocker_type,
+        update.expected_resolution_date,
+        update.additional_notes
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `team_updates_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
+    link.href = URL.createObjectURL(blob);
+    link.download = `daily-updates-${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
-    document.body.removeChild(link);
-    
-    toast.success('Data exported successfully!');
   };
 
-  // Format blockers from JSON string
-  const formatBlockers = (blockersJson: string) => {
-    if (!blockersJson || blockersJson === 'null') return [];
-    
-    try {
-      const parsed = JSON.parse(blockersJson);
-      
-      // Handle different formats of blockers data
-      if (Array.isArray(parsed)) {
-        return parsed.map(blocker => {
-          // Ensure each blocker has required fields
-          return {
-            id: blocker.id || String(Math.random()),
-            type: blocker.type || 'Issue',
-            description: blocker.description || 'No description',
-            resolutionDate: blocker.resolutionDate || new Date().toISOString().split('T')[0]
-          };
-        });
-      } else if (typeof parsed === 'object' && parsed !== null) {
-        // Handle case where a single blocker object is stored
-        return [{
-          id: parsed.id || String(Math.random()),
-          type: parsed.type || 'Issue',
-          description: parsed.description || 'No description',
-          resolutionDate: parsed.resolutionDate || new Date().toISOString().split('T')[0]
-        }];
-      }
-      
-      return [];
-    } catch (e) {
-      console.error('Error parsing blockers:', e);
-      
-      // If parsing failed but we have string content, create a default blocker
-      if (typeof blockersJson === 'string' && blockersJson.trim() !== '') {
-        return [{
-          id: String(Math.random()),
-          type: 'Issue',
-          description: blockersJson.trim(),
-          resolutionDate: new Date().toISOString().split('T')[0]
-        }];
-      }
-      
-      return [];
-    }
-  };
-
-  // Refresh data function
   const refreshData = async () => {
-    if (isRefreshing) return;
-    
     setIsRefreshing(true);
     try {
       await fetchData(selectedTeam);
@@ -351,13 +230,6 @@ export default function Dashboard() {
       setIsRefreshing(false);
     }
   };
-
-  // Effect to fetch data when pagination changes
-  useEffect(() => {
-    if (userData.isManager) {
-      fetchData(selectedTeam);
-    }
-  }, [currentPage, pageSize, userData.isManager]);
 
   return (
     <>
@@ -438,7 +310,7 @@ export default function Dashboard() {
                       >
                         <option value="">All Teams</option>
                         {teams.map((team, index) => (
-                          <option key={index} value={team}>{team}</option>
+                          <option key={index} value={team.id}>{team.team_name}</option>
                         ))}
                       </select>
                     </div>
@@ -551,10 +423,13 @@ export default function Dashboard() {
                             Date
                           </th>
                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                            Team
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                             Employee
                           </th>
                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Team
+                            Tasks Completed
                           </th>
                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                             Status
@@ -563,126 +438,100 @@ export default function Dashboard() {
                             Blockers
                           </th>
                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            <span className="sr-only">Actions</span>
+                            Expected Resolution
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                            Additional Notes
                           </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-700">
                         {filteredData.map((item, index) => {
-                          const formattedBlockers = formatBlockers(item.blockers);
-                          const hasBlockers = formattedBlockers.length > 0;
                           const rowId = `row-${index}`;
                           const isExpanded = expandedRows[rowId] || false;
-                          
+                          const team = teams.find(t => t.id === item.team_id);
+
                           return (
-                            <React.Fragment key={index}>
-                              <tr className={`hover:bg-[#2a3347] transition-colors duration-200 ${isExpanded ? 'bg-[#2a3347]' : ''}`}>
+                            <React.Fragment key={rowId}>
+                              <tr 
+                                className="hover:bg-[#2a3347] transition-colors duration-200 cursor-pointer"
+                                onClick={() => toggleRowExpansion(rowId)}
+                              >
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                   {new Date(item.created_at).toLocaleDateString()}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                  <div className="flex items-center">
-                                    <span className="font-medium text-white">{item.employee_name}</span>
-                                    {item.email && (
-                                      <span className="ml-2 text-xs text-gray-400">{item.email}</span>
-                                    )}
-                                  </div>
-                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {item.team || '-'}
+                                  {team?.team_name || '-'}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium
-                                    ${item.status === 'completed' ? 'bg-green-500/20 text-green-400' : 
-                                      item.status === 'in-progress' ? 'bg-blue-500/20 text-blue-400' : 
-                                      'bg-red-500/20 text-red-400'}`}>
+                                  <span className="text-sm text-gray-300">{item.employee_email}</span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                  <span className="text-gray-300">{item.tasks_completed}</span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                    item.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                    item.status === 'in-progress' ? 'bg-blue-500/20 text-blue-400' :
+                                    'bg-red-500/20 text-red-400'
+                                  }`}>
                                     {item.status}
                                   </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                  {hasBlockers ? (
+                                  {item.blocker_type ? (
                                     <span className="bg-red-500/20 text-red-400 px-2 py-1 rounded-full text-xs">
-                                      {formattedBlockers.length} {formattedBlockers.length === 1 ? 'blocker' : 'blockers'}
+                                      {item.blocker_type}
                                     </span>
                                   ) : (
-                                    <span className="text-gray-400">None</span>
+                                    <span className="text-gray-400">-</span>
                                   )}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                  <button
-                                    onClick={() => toggleRowExpansion(rowId)}
-                                    className="text-purple-400 hover:text-purple-300 focus:outline-none"
-                                  >
-                                    {isExpanded ? (
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd" />
-                                      </svg>
-                                    ) : (
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                                      </svg>
-                                    )}
-                                  </button>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                  {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : '-'}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                  {item.additional_notes || '-'}
                                 </td>
                               </tr>
-                              
-                              {/* Expanded row details */}
                               {isExpanded && (
-                                <tr className="bg-[#2a3347]">
-                                  <td colSpan={6} className="px-6 py-4">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
+                                <tr>
+                                  <td colSpan={8} className="px-6 py-4 bg-[#1e2538]">
+                                    <div className="space-y-4">
                                       <div>
                                         <h4 className="text-sm font-medium text-gray-300 mb-2">Tasks Completed</h4>
-                                        <p className="text-sm text-white whitespace-pre-wrap bg-[#1e2538] p-3 rounded-md">
-                                          {item.tasks_completed || 'No tasks recorded'}
-                                        </p>
-                                        
-                                        {item.notes && (
-                                          <>
-                                            <h4 className="text-sm font-medium text-gray-300 mb-2 mt-4">Additional Notes</h4>
-                                            <p className="text-sm text-white whitespace-pre-wrap bg-[#1e2538] p-3 rounded-md">
-                                              {item.notes}
-                                            </p>
-                                          </>
-                                        )}
+                                        <p className="text-sm text-white whitespace-pre-wrap">{item.tasks_completed}</p>
                                       </div>
                                       
-                                      <div>
-                                        {item.help_needed && (
-                                          <>
-                                            <h4 className="text-sm font-medium text-gray-300 mb-2">Help Needed</h4>
-                                            <p className="text-sm text-white whitespace-pre-wrap bg-[#1e2538] p-3 rounded-md mb-4">
-                                              {item.help_needed}
-                                            </p>
-                                          </>
-                                        )}
-                                        
-                                        {hasBlockers && (
-                                          <>
-                                            <h4 className="text-sm font-medium text-gray-300 mb-2">Blockers / Risks / Dependencies</h4>
-                                            <div className="space-y-2">
-                                              {formattedBlockers.map((blocker: any, blockerIndex: number) => (
-                                                <div key={blockerIndex} className="bg-[#1e2538] p-3 rounded-md">
-                                                  <div className="flex items-center space-x-2 mb-1">
-                                                    <span className={`inline-block px-2 py-1 text-xs rounded-full ${
-                                                      blocker.type === 'Risk' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                      blocker.type === 'Issue' ? 'bg-red-500/20 text-red-400' :
-                                                      blocker.type === 'Dependency' ? 'bg-blue-500/20 text-blue-400' :
-                                                      'bg-orange-500/20 text-orange-400'
-                                                    }`}>
-                                                      {blocker.type}
-                                                    </span>
-                                                    <span className="text-xs text-gray-400">
-                                                      Resolution: {new Date(blocker.resolutionDate).toLocaleDateString()}
-                                                    </span>
-                                                  </div>
-                                                  <p className="text-sm text-white whitespace-pre-wrap">{blocker.description}</p>
-                                                </div>
-                                              ))}
+                                      {item.blocker_type && (
+                                        <>
+                                          <h4 className="text-sm font-medium text-gray-300 mb-2">Blockers / Risks / Dependencies</h4>
+                                          <div className="space-y-2">
+                                            <div className="bg-[#1e2538] p-3 rounded-md">
+                                              <div className="flex items-center space-x-2 mb-1">
+                                                <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                                                  item.blocker_type === 'Risks' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                  item.blocker_type === 'Blockers' ? 'bg-red-500/20 text-red-400' :
+                                                  'bg-blue-500/20 text-blue-400'
+                                                }`}>
+                                                  {item.blocker_type}
+                                                </span>
+                                                <span className="text-xs text-gray-400">
+                                                  Resolution: {new Date(item.expected_resolution_date).toLocaleDateString()}
+                                                </span>
+                                              </div>
+                                              <p className="text-sm text-white whitespace-pre-wrap">{item.blocker_description}</p>
                                             </div>
-                                          </>
-                                        )}
-                                      </div>
+                                          </div>
+                                        </>
+                                      )}
+
+                                      {item.additional_notes && (
+                                        <>
+                                          <h4 className="text-sm font-medium text-gray-300 mb-2">Additional Notes</h4>
+                                          <p className="text-sm text-white whitespace-pre-wrap">{item.additional_notes}</p>
+                                        </>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
