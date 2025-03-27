@@ -3,7 +3,6 @@ import Head from 'next/head';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
 
 interface DashboardUser {
   userName: string;
@@ -45,7 +44,7 @@ export default function Dashboard() {
   // Additional state for data loading and pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(10);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
@@ -56,7 +55,7 @@ export default function Dashboard() {
         // In a real app, this would check auth session or get data from auth context
         // For demo purposes, we're using hardcoded data
         const mockUserData = {
-          userName: 'Anubhav',
+          userName: 'John Doe',
           userEmail: 'john.doe@example.com',
           teamName: 'Development',
           isManager: true
@@ -109,20 +108,29 @@ export default function Dashboard() {
       if (teamFilter) {
         query = query.eq('team', teamFilter);
       }
+
+      // Apply tab-specific filters
+      if (activeTab === 'recent') {
+        const fiveDaysAgo = new Date();
+        fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+        query = query.gte('created_at', fiveDaysAgo.toISOString());
+      } else if (activeTab === 'blockers') {
+        query = query.not('blockers', 'is', null);
+      }
       
-      // Execute the query with pagination
-      const { data, error, count } = await query
-        .range(start, end);
+      // Get total count first
+      const { count } = await query;
+      const totalCount = count || 0;
+      const calculatedTotalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+      setTotalPages(calculatedTotalPages);
+      
+      // Then get paginated data
+      const { data, error } = await query.range(start, end);
       
       if (error) {
         console.error('Supabase query error:', error);
         throw new Error(`Failed to fetch data: ${error.message}`);
       }
-      
-      // Calculate total pages
-      const totalCount = count || 0;
-      const calculatedTotalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-      setTotalPages(calculatedTotalPages);
       
       console.log(`Fetched ${data?.length || 0} records out of ${totalCount} total (page ${currentPage}/${calculatedTotalPages})`);
       
@@ -180,77 +188,13 @@ export default function Dashboard() {
     setStats(stats);
   };
 
-  // Function to apply filters
-  const applyFilters = () => {
-    let filtered = [...historicalData];
-    
-    // Filter by team
-    if (selectedTeam) {
-      filtered = filtered.filter(item => item.team === selectedTeam);
-    }
-    
-    // Filter by date range
-    if (dateRange.start && dateRange.end) {
-      try {
-        const startDate = new Date(dateRange.start);
-        const endDate = new Date(dateRange.end);
-        
-        // Add time to end date to include all entries on that day
-        endDate.setHours(23, 59, 59, 999);
-        
-        // Check for valid dates
-        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-          filtered = filtered.filter(item => {
-            const itemDate = new Date(item.created_at);
-            return itemDate >= startDate && itemDate <= endDate;
-          });
-        }
-      } catch (error) {
-        console.error('Error filtering by date:', error);
-        // Continue with other filters if date filtering fails
-      }
-    }
-    
-    // Filter by tab
-    if (activeTab === 'recent') {
-      // Only show last 5 days of data
-      const fiveDaysAgo = new Date();
-      fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-      filtered = filtered.filter(item => {
-        try {
-          const itemDate = new Date(item.created_at);
-          return !isNaN(itemDate.getTime()) && itemDate >= fiveDaysAgo;
-        } catch {
-          // Skip this item if date is invalid
-          return false;
-        }
-      });
-    } else if (activeTab === 'blockers') {
-      // Only show items with blockers
-      filtered = filtered.filter(item => {
-        if (!item.blockers || item.blockers === 'null') return false;
-        
-        try {
-          // Try to parse the blockers JSON
-          const blockersArray = JSON.parse(item.blockers);
-          return Array.isArray(blockersArray) && blockersArray.length > 0;
-        } catch {
-          // If it's not valid JSON but has string content, consider it as having blockers
-          return typeof item.blockers === 'string' && item.blockers.trim() !== '';
-        }
-      });
-    }
-    
-    setFilteredData(filtered);
-    calculateStats(filtered);
-  };
-
-  // Apply filters whenever filter state changes
+  // Update the useEffect for filters
   useEffect(() => {
-    if (historicalData.length > 0) {
-      applyFilters();
+    if (userData.isManager) {
+      setCurrentPage(1); // Reset to first page when filters change
+      fetchData(selectedTeam);
     }
-  }, [selectedTeam, dateRange, activeTab, historicalData]);
+  }, [activeTab, selectedTeam, dateRange, userData.isManager]);
 
   // Toggle row expansion
   const toggleRowExpansion = (id: string) => {
@@ -352,12 +296,100 @@ export default function Dashboard() {
     }
   };
 
-  // Effect to fetch data when pagination changes
-  useEffect(() => {
-    if (userData.isManager) {
-      fetchData(selectedTeam);
+  // Function to handle page change
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Function to render pagination controls
+  const renderPagination = () => {
+    const maxVisiblePages = 5;
+    const pages = [];
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
     }
-  }, [currentPage, pageSize, userData.isManager]);
+
+    // Add first page
+    if (startPage > 1) {
+      pages.push(
+        <button
+          key={1}
+          onClick={() => handlePageChange(1)}
+          className="px-3 py-1 bg-[#262d40] text-gray-300 rounded-md text-sm hover:bg-[#2a3347] transition-colors duration-200"
+        >
+          1
+        </button>
+      );
+      if (startPage > 2) {
+        pages.push(
+          <span key="ellipsis1" className="px-2 text-gray-400">
+            ...
+          </span>
+        );
+      }
+    }
+
+    // Add visible pages
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(
+        <button
+          key={i}
+          onClick={() => handlePageChange(i)}
+          className={`px-3 py-1 rounded-md text-sm transition-colors duration-200 ${
+            currentPage === i
+              ? 'bg-purple-600 text-white'
+              : 'bg-[#262d40] text-gray-300 hover:bg-[#2a3347]'
+          }`}
+        >
+          {i}
+        </button>
+      );
+    }
+
+    // Add last page
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        pages.push(
+          <span key="ellipsis2" className="px-2 text-gray-400">
+            ...
+          </span>
+        );
+      }
+      pages.push(
+        <button
+          key={totalPages}
+          onClick={() => handlePageChange(totalPages)}
+          className="px-3 py-1 bg-[#262d40] text-gray-300 rounded-md text-sm hover:bg-[#2a3347] transition-colors duration-200"
+        >
+          {totalPages}
+        </button>
+      );
+    }
+
+    return (
+      <div className="flex items-center justify-center space-x-2 mt-4">
+        <button
+          onClick={() => handlePageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="px-3 py-1 bg-[#262d40] text-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#2a3347] transition-colors duration-200"
+        >
+          Previous
+        </button>
+        {pages}
+        <button
+          onClick={() => handlePageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="px-3 py-1 bg-[#262d40] text-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#2a3347] transition-colors duration-200"
+        >
+          Next
+        </button>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -714,55 +746,7 @@ export default function Dashboard() {
                   <div className="text-sm text-gray-400">
                     Showing {filteredData.length} of {historicalData.length} entries
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
-                      className="px-3 py-1 bg-[#262d40] text-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#2a3347] transition-colors duration-200"
-                    >
-                      Previous
-                    </button>
-                    <div className="flex items-center space-x-1">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        // Show 5 page buttons at most
-                        let pageNum: number;
-                        if (totalPages <= 5) {
-                          // If total pages <= 5, show all pages
-                          pageNum = i + 1;
-                        } else if (currentPage <= 3) {
-                          // If we're near the start, show pages 1-5
-                          pageNum = i + 1;
-                        } else if (currentPage >= totalPages - 2) {
-                          // If we're near the end, show the last 5 pages
-                          pageNum = totalPages - 4 + i;
-                        } else {
-                          // Otherwise show 2 before and 2 after the current page
-                          pageNum = currentPage - 2 + i;
-                        }
-                        
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => setCurrentPage(pageNum)}
-                            className={`w-8 h-8 flex items-center justify-center rounded-md text-sm
-                              ${pageNum === currentPage 
-                                ? 'bg-purple-600 text-white' 
-                                : 'bg-[#262d40] text-gray-300 hover:bg-[#2a3347]'} 
-                              transition-colors duration-200`}
-                          >
-                            {pageNum}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                      disabled={currentPage === totalPages}
-                      className="px-3 py-1 bg-[#262d40] text-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#2a3347] transition-colors duration-200"
-                    >
-                      Next
-                    </button>
-                  </div>
+                  {renderPagination()}
                 </div>
               )}
             </>

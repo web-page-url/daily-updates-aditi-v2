@@ -579,7 +579,7 @@ Daily Updates System
             {/* Tasks Completed */}
             <div className="group">
               <label htmlFor="task" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
-                Tasks Completed Today <span className="text-red-500">*</span>
+                Tasks <span className="text-red-500">*</span>
               </label>
               <textarea
                 id="task"
@@ -820,7 +820,7 @@ Daily Updates System
                     Submitting...
                   </span>
                 ) : (
-                  'Submit Update'
+                  'Submit'
                 )}
               </button>
 
