@@ -44,7 +44,7 @@ export default function Home() {
         <meta property="og:title" content="Aditi Daily Employee Updates" />
         <meta property="og:description" content="Efficient employee task tracking and management system" />
         <meta property="og:image" content="/aditi.png" />
-        <meta property="og:url" content="https://aditi-daily-updates-v1.netlify.app/" />
+        <meta property="og:url" content="https://aditi-daily-updates-v2.netlify.app/" />
         <meta property="og:type" content="website" />
         
         {/* Twitter Card Meta Tags */}
@@ -54,7 +54,7 @@ export default function Home() {
         <meta name="twitter:image" content="/aditi.png" />
         
         {/* Canonical URL */}
-        <link rel="canonical" href="https://aditi-daily-updates-v1.netlify.app/" />
+        <link rel="canonical" href="https://aditi-daily-updates-v2.netlify.app/" />
         
         {/* Fonts */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -69,7 +69,7 @@ export default function Home() {
             "name": "Aditi Daily Employee Updates",
             "description": "Employee task management and daily updates tracking system",
             "image": "/aditi.png",
-            "url": "https://aditi-daily-updates-v1.netlify.app/",
+            "url": "https://aditi-daily-updates-v2.netlify.app/",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web"
           })}
