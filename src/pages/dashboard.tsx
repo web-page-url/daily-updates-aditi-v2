@@ -240,7 +240,7 @@ export default function Dashboard() {
         <meta name="description" content="Dashboard for managers to view and analyze team daily updates" />
       </Head>
       
-      <div className="min-h-screen bg-[#1a1f2e] text-white">
+      <div className="min-h-screen bg-[#1a1f2e] text-white flex flex-col">
         {/* Navbar */}
         <nav className="bg-[#1e2538] shadow-md">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -265,7 +265,7 @@ export default function Dashboard() {
           </div>
         </nav>
         
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {isLoading ? (
             <div className="flex justify-center items-center h-64">
               <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
@@ -415,132 +415,136 @@ export default function Dashboard() {
               {/* Data Table */}
               {filteredData.length > 0 ? (
                 <div className="bg-[#1e2538] rounded-lg shadow-lg overflow-hidden">
-                  <div className="table-responsive">
-                    <table className="min-w-full divide-y divide-gray-700">
-                      <thead className="bg-[#262d40]">
-                        <tr>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Date
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Team
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Employee
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Tasks Completed
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Status
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Blockers
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Expected Resolution
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                            Additional Notes
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-700">
-                        {filteredData.map((item, index) => {
-                          const rowId = `row-${index}`;
-                          const isExpanded = expandedRows[rowId] || false;
-                          const team = teams.find(t => t.id === item.team_id);
+                  <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    <div className="inline-block min-w-full align-middle">
+                      <div className="overflow-hidden">
+                        <table className="min-w-full divide-y divide-gray-700 table-fixed">
+                          <thead className="bg-[#262d40]">
+                            <tr>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
+                                Date
+                              </th>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">
+                                Team
+                              </th>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">
+                                Employee
+                              </th>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[300px]">
+                                Tasks Completed
+                              </th>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
+                                Status
+                              </th>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">
+                                Blockers
+                              </th>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">
+                                Expected Resolution
+                              </th>
+                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">
+                                Additional Notes
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-700">
+                            {filteredData.map((item, index) => {
+                              const rowId = `row-${index}`;
+                              const isExpanded = expandedRows[rowId] || false;
+                              const team = teams.find(t => t.id === item.team_id);
 
-                          return (
-                            <React.Fragment key={rowId}>
-                              <tr 
-                                className="hover:bg-[#2a3347] transition-colors duration-200 cursor-pointer"
-                                onClick={() => toggleRowExpansion(rowId)}
-                              >
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {new Date(item.created_at).toLocaleDateString()}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {team?.team_name || '-'}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <span className="text-sm text-gray-300">{item.employee_email}</span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                  <span className="text-gray-300">{item.tasks_completed}</span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    item.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                                    item.status === 'in-progress' ? 'bg-blue-500/20 text-blue-400' :
-                                    'bg-red-500/20 text-red-400'
-                                  }`}>
-                                    {item.status}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                  {item.blocker_type ? (
-                                    <span className="bg-red-500/20 text-red-400 px-2 py-1 rounded-full text-xs">
-                                      {item.blocker_type}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-400">-</span>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : '-'}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                  {item.additional_notes || '-'}
-                                </td>
-                              </tr>
-                              {isExpanded && (
-                                <tr>
-                                  <td colSpan={8} className="px-6 py-4 bg-[#1e2538]">
-                                    <div className="space-y-4">
-                                      <div>
-                                        <h4 className="text-sm font-medium text-gray-300 mb-2">Tasks Completed</h4>
-                                        <p className="text-sm text-white whitespace-pre-wrap">{item.tasks_completed}</p>
-                                      </div>
-                                      
-                                      {item.blocker_type && (
-                                        <>
-                                          <h4 className="text-sm font-medium text-gray-300 mb-2">Blockers / Risks / Dependencies</h4>
-                                          <div className="space-y-2">
-                                            <div className="bg-[#1e2538] p-3 rounded-md">
-                                              <div className="flex items-center space-x-2 mb-1">
-                                                <span className={`inline-block px-2 py-1 text-xs rounded-full ${
-                                                  item.blocker_type === 'Risks' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                  item.blocker_type === 'Blockers' ? 'bg-red-500/20 text-red-400' :
-                                                  'bg-blue-500/20 text-blue-400'
-                                                }`}>
-                                                  {item.blocker_type}
-                                                </span>
-                                                <span className="text-xs text-gray-400">
-                                                  Resolution: {new Date(item.expected_resolution_date).toLocaleDateString()}
-                                                </span>
-                                              </div>
-                                              <p className="text-sm text-white whitespace-pre-wrap">{item.blocker_description}</p>
-                                            </div>
+                              return (
+                                <React.Fragment key={rowId}>
+                                  <tr 
+                                    className="hover:bg-[#2a3347] transition-colors duration-200 cursor-pointer"
+                                    onClick={() => toggleRowExpansion(rowId)}
+                                  >
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                      {new Date(item.created_at).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                      {team?.team_name || '-'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                      <span className="text-sm text-gray-300">{item.employee_email}</span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                      <span className="text-gray-300">{item.tasks_completed}</span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                        item.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                        item.status === 'in-progress' ? 'bg-blue-500/20 text-blue-400' :
+                                        'bg-red-500/20 text-red-400'
+                                      }`}>
+                                        {item.status}
+                                      </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                      {item.blocker_type ? (
+                                        <span className="bg-red-500/20 text-red-400 px-2 py-1 rounded-full text-xs">
+                                          {item.blocker_type}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                      {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : '-'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                      {item.additional_notes || '-'}
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr>
+                                      <td colSpan={8} className="px-6 py-4 bg-[#1e2538]">
+                                        <div className="space-y-4">
+                                          <div>
+                                            <h4 className="text-sm font-medium text-gray-300 mb-2">Tasks Completed</h4>
+                                            <p className="text-sm text-white whitespace-pre-wrap">{item.tasks_completed}</p>
                                           </div>
-                                        </>
-                                      )}
+                                          
+                                          {item.blocker_type && (
+                                            <>
+                                              <h4 className="text-sm font-medium text-gray-300 mb-2">Blockers / Risks / Dependencies</h4>
+                                              <div className="space-y-2">
+                                                <div className="bg-[#1e2538] p-3 rounded-md">
+                                                  <div className="flex items-center space-x-2 mb-1">
+                                                    <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                                                      item.blocker_type === 'Risks' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                      item.blocker_type === 'Blockers' ? 'bg-red-500/20 text-red-400' :
+                                                      'bg-blue-500/20 text-blue-400'
+                                                    }`}>
+                                                      {item.blocker_type}
+                                                    </span>
+                                                    <span className="text-xs text-gray-400">
+                                                      Resolution: {new Date(item.expected_resolution_date).toLocaleDateString()}
+                                                    </span>
+                                                  </div>
+                                                  <p className="text-sm text-white whitespace-pre-wrap">{item.blocker_description}</p>
+                                                </div>
+                                              </div>
+                                            </>
+                                          )}
 
-                                      {item.additional_notes && (
-                                        <>
-                                          <h4 className="text-sm font-medium text-gray-300 mb-2">Additional Notes</h4>
-                                          <p className="text-sm text-white whitespace-pre-wrap">{item.additional_notes}</p>
-                                        </>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                          {item.additional_notes && (
+                                            <>
+                                              <h4 className="text-sm font-medium text-gray-300 mb-2">Additional Notes</h4>
+                                              <p className="text-sm text-white whitespace-pre-wrap">{item.additional_notes}</p>
+                                            </>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -619,7 +623,7 @@ export default function Dashboard() {
         </main>
         
         {/* Footer */}
-        <footer className="bg-[#1e2538] py-4 mt-8">
+        <footer className="bg-[#1e2538] py-3 mt-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <p className="text-center text-gray-400 text-sm">
               © {new Date().getFullYear()} Aditi Updates. All rights reserved.

@@ -265,8 +265,8 @@ export default function TeamManagement() {
         <meta name="description" content="Manage your team members and create new teams" />
       </Head>
 
-      <div className="min-h-screen bg-[#1a1f2e] text-white py-8">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-[#1a1f2e] text-white flex flex-col">
+        <div className="flex-grow max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="bg-[#1e2538] rounded-lg shadow-lg p-6">
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent">
@@ -485,23 +485,27 @@ export default function TeamManagement() {
                   <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
                 </div>
               ) : teams.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-700">
-                    <thead>
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Team Name</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Manager Email</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-700">
-                      {teams.map((team, index) => (
-                        <tr key={index} className="hover:bg-[#2a3347] transition-colors duration-200">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{team.team_name}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{team.manager_email}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div className="inline-block min-w-full align-middle">
+                    <div className="overflow-hidden">
+                      <table className="min-w-full divide-y divide-gray-700 table-fixed">
+                        <thead>
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Team Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[250px]">Manager Email</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-700">
+                          {teams.map((team, index) => (
+                            <tr key={index} className="hover:bg-[#2a3347] transition-colors duration-200">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">{team.team_name}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">{team.manager_email}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <p className="text-center text-gray-400 py-4">No teams found. Create your first team above.</p>
@@ -516,29 +520,33 @@ export default function TeamManagement() {
                   <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
                 </div>
               ) : teamMembers.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-700">
-                    <thead>
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Team Name</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Employee ID</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Employee Email</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Manager Name</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Team Member Name</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-700">
-                      {teamMembers.map((member, index) => (
-                        <tr key={index} className="hover:bg-[#2a3347] transition-colors duration-200">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{member.aditi_teams?.team_name || 'Unknown'}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{member.employee_id}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{member.employee_email}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{member.manager_name}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{member.team_member_name}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div className="inline-block min-w-full align-middle">
+                    <div className="overflow-hidden">
+                      <table className="min-w-full divide-y divide-gray-700 table-fixed">
+                        <thead>
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Team Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">Employee ID</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[250px]">Employee Email</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Manager Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Team Member Name</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-700">
+                          {teamMembers.map((member, index) => (
+                            <tr key={index} className="hover:bg-[#2a3347] transition-colors duration-200">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.aditi_teams?.team_name || 'Unknown'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.employee_id}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.employee_email}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.manager_name}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.team_member_name}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <p className="text-center text-gray-400 py-4">No team members found.</p>
@@ -546,6 +554,14 @@ export default function TeamManagement() {
             </div>
           </div>
         </div>
+        
+        <footer className="bg-[#1e2538] py-3">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <p className="text-center text-gray-400 text-sm">
+              © {new Date().getFullYear()} Aditi Updates. All rights reserved.
+            </p>
+          </div>
+        </footer>
       </div>
     </>
   );
