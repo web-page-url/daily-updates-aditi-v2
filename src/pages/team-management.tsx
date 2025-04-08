@@ -1,68 +1,78 @@
 import { useState, useEffect } from 'react';
-import { supabase, Team, TeamMember } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
-import Head from 'next/head';
-import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/router';
+import Layout from '../components/Layout';
 
-interface TeamMemberFormData {
-  team_id: string;
-  employee_email: string;
-  employee_id: string;
-  manager_name: string;
-  team_member_name: string;
+interface Team {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
 }
 
-interface TeamFormData {
-  team_name: string;
-  manager_email: string;
+interface TeamMember {
+  id: string;
+  team_id: string;
+  user_email: string;
+  role: string;
+  created_at: string;
+}
+
+interface ExtendedSession {
+  roles?: string[];
 }
 
 export default function TeamManagement() {
+  const { data: session, status } = useSession() as { data: ExtendedSession | null, status: string };
+  const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newTeamMember, setNewTeamMember] = useState<TeamMemberFormData>({
-    team_id: '',
-    employee_email: '',
-    employee_id: '',
-    manager_name: '',
-    team_member_name: ''
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [newTeam, setNewTeam] = useState({
+    name: '',
+    description: ''
   });
-  const [newTeam, setNewTeam] = useState<TeamFormData>({
-    team_name: '',
-    manager_email: ''
+  const [newMember, setNewMember] = useState({
+    email: '',
+    role: 'member'
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmittingTeam, setIsSubmittingTeam] = useState(false);
-  const [error, setError] = useState('');
-  const [teamError, setTeamError] = useState('');
-  const [showTeamForm, setShowTeamForm] = useState(false);
 
-  // Fetch existing teams and team members
   useEffect(() => {
-    fetchTeams();
-    fetchTeamMembers();
-  }, []);
+    if (status === 'loading') return;
+    
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+      return;
+    }
+
+    if (status === 'authenticated' && !session?.roles?.includes('admin') && !session?.roles?.includes('manager')) {
+      router.push('/access-denied');
+      return;
+    }
+
+    if (status === 'authenticated' && (session?.roles?.includes('admin') || session?.roles?.includes('manager'))) {
+      fetchTeams();
+      fetchTeamMembers();
+    }
+  }, [status, session, router]);
 
   const fetchTeams = async () => {
     try {
-      setLoading(true);
       const { data, error } = await supabase
         .from('aditi_teams')
         .select('*')
-        .order('team_name', { ascending: true });
+        .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching teams:', error);
-        throw error;
-      }
-      
+      if (error) throw error;
       setTeams(data || []);
-      console.log('Teams loaded:', data);
     } catch (error) {
-      if (error instanceof Error) {
-        toast.error('Failed to load teams');
-      }
+      console.error('Error fetching teams:', error);
+      toast.error('Failed to fetch teams');
     } finally {
       setLoading(false);
     }
@@ -72,497 +82,266 @@ export default function TeamManagement() {
     try {
       const { data, error } = await supabase
         .from('aditi_team_members')
-        .select(`
-          *,
-          aditi_teams(*)
-        `)
-        .order('created_at', { ascending: false });
+        .select('*');
 
-      if (error) {
-        console.error('Error fetching team members:', error);
-        throw error;
-      }
-      
+      if (error) throw error;
       setTeamMembers(data || []);
     } catch (error) {
-      if (error instanceof Error) {
-        toast.error('Failed to load team members');
-      }
+      console.error('Error fetching team members:', error);
+      toast.error('Failed to fetch team members');
     }
   };
 
-  const handleSubmitTeam = async (e: React.FormEvent) => {
+  const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmittingTeam(true);
-    setTeamError('');
-
     try {
-      // Validate input data
-      const validationErrors = [];
-      if (!newTeam.team_name.trim()) validationErrors.push('Team name is required');
-      if (!newTeam.manager_email.trim()) validationErrors.push('Manager email is required');
-
-      // Validate format
-      if (!/^[A-Za-z0-9\s-]+$/.test(newTeam.team_name)) {
-        validationErrors.push('Team name can only contain letters, numbers, spaces, and hyphens');
-      }
-      if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(newTeam.manager_email)) {
-        validationErrors.push('Please enter a valid manager email address');
-      }
-
-      if (validationErrors.length > 0) {
-        throw new Error(validationErrors.join('\n'));
-      }
-
-      console.log('Creating new team:', newTeam);
-
-      // Check for duplicate team name
-      const { data: existingTeam, error: checkError, count } = await supabase
-        .from('aditi_teams')
-        .select('id', { count: 'exact' })
-        .eq('team_name', newTeam.team_name.trim());
-
-      if (checkError) {
-        console.error('Error checking for existing team:', checkError);
-        throw new Error(`Database error checking team name: ${checkError.message}`);
-      }
-
-      if (existingTeam && existingTeam.length > 0) {
-        throw new Error('A team with this name already exists');
-      }
-
-      // Insert the new team
       const { data, error } = await supabase
         .from('aditi_teams')
-        .insert([{
-          team_name: newTeam.team_name.trim(),
-          manager_email: newTeam.manager_email.trim()
-        }])
-        .select();
+        .insert([newTeam])
+        .select()
+        .single();
 
-      if (error) {
-        console.error('Error creating team:', error);
-        throw new Error(`Database error creating team: ${error.message}`);
-      }
-
-      console.log('Team created successfully:', data);
-
-      // Success
-      toast.success('Team created successfully!');
-      setNewTeam({
-        team_name: '',
-        manager_email: ''
-      });
-      setShowTeamForm(false);
-      await fetchTeams();
+      if (error) throw error;
+      setTeams([data, ...teams]);
+      setShowCreateModal(false);
+      setNewTeam({ name: '', description: '' });
+      toast.success('Team created successfully');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create team';
-      console.error('Team creation error:', error);
-      setTeamError(errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      setIsSubmittingTeam(false);
+      console.error('Error creating team:', error);
+      toast.error('Failed to create team');
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setError('');
+    if (!selectedTeam) return;
 
     try {
-      // Validate input data
-      const validationErrors = [];
-      if (!newTeamMember.team_id) validationErrors.push('Team is required');
-      if (!newTeamMember.employee_email.trim()) validationErrors.push('Employee email is required');
-      if (!newTeamMember.employee_id.trim()) validationErrors.push('Employee ID is required');
-      if (!newTeamMember.manager_name.trim()) validationErrors.push('Manager name is required');
-      if (!newTeamMember.team_member_name.trim()) validationErrors.push('Team member name is required');
-
-      // Validate format
-      if (!/^[A-Za-z0-9-]+$/.test(newTeamMember.employee_id)) {
-        validationErrors.push('Employee ID can only contain letters, numbers, and hyphens');
-      }
-      if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(newTeamMember.employee_email)) {
-        validationErrors.push('Please enter a valid email address');
-      }
-
-      if (validationErrors.length > 0) {
-        throw new Error(validationErrors.join('\n'));
-      }
-
-      // Check for duplicate entry
-      const { data: existingEntry, error: checkError } = await supabase
-        .from('aditi_team_members')
-        .select('id')
-        .eq('team_id', newTeamMember.team_id)
-        .eq('employee_email', newTeamMember.employee_email);
-
-      if (checkError) {
-        console.error('Error checking for existing team member:', checkError);
-        throw new Error(`Database error checking team member: ${checkError.message}`);
-      }
-
-      if (existingEntry && existingEntry.length > 0) {
-        throw new Error('This employee is already a member of this team');
-      }
-
-      // Insert the new team member
       const { data, error } = await supabase
         .from('aditi_team_members')
         .insert([{
-          team_id: newTeamMember.team_id,
-          employee_email: newTeamMember.employee_email.trim(),
-          employee_id: newTeamMember.employee_id.trim(),
-          manager_name: newTeamMember.manager_name.trim(),
-          team_member_name: newTeamMember.team_member_name.trim()
+          team_id: selectedTeam.id,
+          user_email: newMember.email,
+          role: newMember.role
         }])
-        .select();
+        .select()
+        .single();
 
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      // Success
-      toast.success('Team member added successfully!');
-      setNewTeamMember({
-        team_id: '',
-        employee_email: '',
-        employee_id: '',
-        manager_name: '',
-        team_member_name: ''
-      });
-      await fetchTeamMembers();
+      if (error) throw error;
+      setTeamMembers([...teamMembers, data]);
+      setShowAddMemberModal(false);
+      setNewMember({ email: '', role: 'member' });
+      toast.success('Member added successfully');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to add team member';
-      setError(errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      setIsSubmitting(false);
+      console.error('Error adding member:', error);
+      toast.error('Failed to add member');
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setNewTeamMember(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const handleDeleteTeam = async (teamId: string) => {
+    if (!window.confirm('Are you sure you want to delete this team?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('aditi_teams')
+        .delete()
+        .eq('id', teamId);
+
+      if (error) throw error;
+      setTeams(teams.filter(team => team.id !== teamId));
+      toast.success('Team deleted successfully');
+    } catch (error) {
+      console.error('Error deleting team:', error);
+      toast.error('Failed to delete team');
+    }
   };
 
-  const handleTeamChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setNewTeam(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const handleRemoveMember = async (memberId: string) => {
+    if (!window.confirm('Are you sure you want to remove this member?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('aditi_team_members')
+        .delete()
+        .eq('id', memberId);
+
+      if (error) throw error;
+      setTeamMembers(teamMembers.filter(member => member.id !== memberId));
+      toast.success('Member removed successfully');
+    } catch (error) {
+      console.error('Error removing member:', error);
+      toast.error('Failed to remove member');
+    }
   };
+
+  if (status === 'loading' || loading) {
+    return (
+      <Layout title="Team Management" description="Manage your teams and members">
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
-    <>
-      <Head>
-        <title>Team Management | Aditi Daily Updates</title>
-        <meta name="description" content="Manage your team members and create new teams" />
-      </Head>
+    <Layout title="Team Management" description="Manage your teams and members">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Team Management</h1>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Create New Team
+          </button>
+        </div>
 
-      <div className="min-h-screen bg-[#1a1f2e] text-white flex flex-col">
-        <div className="flex-grow max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="bg-[#1e2538] rounded-lg shadow-lg p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent">
-                Team Management
-              </h1>
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => setShowTeamForm(!showTeamForm)}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm transition-colors duration-300"
-                >
-                  {showTeamForm ? 'Hide Team Form' : 'Create New Team'}
-                </button>
-                <Link 
-                  href="/dashboard"
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm transition-colors duration-300"
-                >
-                  Back to Dashboard
-                </Link>
-              </div>
-            </div>
-
-            {/* Create New Team Form */}
-            {showTeamForm && (
-              <form onSubmit={handleSubmitTeam} className="mb-8 bg-[#262d40] p-6 rounded-lg">
-                <h2 className="text-xl font-semibold mb-4">Create New Team</h2>
-                
-                {teamError && (
-                  <div className="mb-4 p-3 bg-red-500/20 text-red-400 rounded-md">
-                    <p className="font-medium">Error:</p>
-                    <p>{teamError}</p>
-                  </div>
-                )}
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white shadow overflow-hidden sm:rounded-md">
+          <ul className="divide-y divide-gray-200">
+            {teams.map((team) => (
+              <li key={team.id} className="px-4 py-4 sm:px-6">
+                <div className="flex items-center justify-between">
                   <div>
-                    <label htmlFor="team_name" className="block text-sm font-medium text-gray-300 mb-1">
-                      Team Name
-                    </label>
-                    <input
-                      type="text"
-                      id="team_name"
-                      name="team_name"
-                      value={newTeam.team_name}
-                      onChange={handleTeamChange}
-                      required
-                      className="w-full bg-[#1e2538] border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      placeholder="Enter team name"
-                    />
+                    <h3 className="text-lg font-medium text-gray-900">{team.name}</h3>
+                    <p className="mt-1 text-sm text-gray-500">{team.description}</p>
                   </div>
-                  <div>
-                    <label htmlFor="manager_email" className="block text-sm font-medium text-gray-300 mb-1">
-                      Manager Email
-                    </label>
-                    <input
-                      type="email"
-                      id="manager_email"
-                      name="manager_email"
-                      value={newTeam.manager_email}
-                      onChange={handleTeamChange}
-                      required
-                      className="w-full bg-[#1e2538] border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      placeholder="Enter manager email"
-                    />
+                  <div className="flex space-x-4">
+                    <button
+                      onClick={() => {
+                        setSelectedTeam(team);
+                        setShowAddMemberModal(true);
+                      }}
+                      className="text-blue-600 hover:text-blue-900"
+                    >
+                      Add Member
+                    </button>
+                    <button
+                      onClick={() => handleDeleteTeam(team.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Delete Team
+                    </button>
                   </div>
                 </div>
                 <div className="mt-4">
-                  <button
-                    type="submit"
-                    disabled={isSubmittingTeam}
-                    className={`bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${
-                      isSubmittingTeam ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
-                  >
-                    {isSubmittingTeam ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Creating...
-                      </>
-                    ) : (
-                      'Create Team'
-                    )}
-                  </button>
+                  <h4 className="text-sm font-medium text-gray-900">Team Members</h4>
+                  <ul className="mt-2 divide-y divide-gray-200">
+                    {teamMembers
+                      .filter((member) => member.team_id === team.id)
+                      .map((member) => (
+                        <li key={member.id} className="py-2 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{member.user_email}</p>
+                            <p className="text-sm text-gray-500">Role: {member.role}</p>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveMember(member.id)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
                 </div>
-              </form>
-            )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
 
-            {/* Add New Team Member Form */}
-            <form onSubmit={handleSubmit} className="mb-8 bg-[#262d40] p-6 rounded-lg">
-              <h2 className="text-xl font-semibold mb-4">Add New Team Member</h2>
-              
-              {error && (
-                <div className="mb-4 p-3 bg-red-500/20 text-red-400 rounded-md">
-                  <p className="font-medium">Error:</p>
-                  <p>{error}</p>
-                </div>
-              )}
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="team_id" className="block text-sm font-medium text-gray-300 mb-1">
-                    Team
-                  </label>
-                  <select
-                    id="team_id"
-                    name="team_id"
-                    value={newTeamMember.team_id}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-[#1e2538] border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="">Select a team</option>
-                    {teams.map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.team_name}
-                      </option>
-                    ))}
-                  </select>
-                  {teams.length === 0 && !loading && (
-                    <p className="text-sm text-yellow-400 mt-1">
-                      No teams available. Please create a team first.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label htmlFor="employee_id" className="block text-sm font-medium text-gray-300 mb-1">
-                    Employee ID
-                  </label>
-                  <input
-                    type="text"
-                    id="employee_id"
-                    name="employee_id"
-                    value={newTeamMember.employee_id}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-[#1e2538] border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="Enter employee ID"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="employee_email" className="block text-sm font-medium text-gray-300 mb-1">
-                    Employee Email
-                  </label>
-                  <input
-                    type="email"
-                    id="employee_email"
-                    name="employee_email"
-                    value={newTeamMember.employee_email}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-[#1e2538] border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="Enter employee email"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="manager_name" className="block text-sm font-medium text-gray-300 mb-1">
-                    Manager Name
-                  </label>
-                  <input
-                    type="text"
-                    id="manager_name"
-                    name="manager_name"
-                    value={newTeamMember.manager_name}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-[#1e2538] border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="Enter manager name"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="team_member_name" className="block text-sm font-medium text-gray-300 mb-1">
-                    Team Member Name
-                  </label>
-                  <input
-                    type="text"
-                    id="team_member_name"
-                    name="team_member_name"
-                    value={newTeamMember.team_member_name}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-[#1e2538] border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="Enter team member name"
-                  />
-                </div>
+      {/* Create Team Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4">Create New Team</h2>
+            <form onSubmit={handleCreateTeam}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700">Team Name</label>
+                <input
+                  type="text"
+                  value={newTeam.name}
+                  onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  required
+                />
               </div>
-              <div className="mt-4">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <textarea
+                  value={newTeam.description}
+                  onChange={(e) => setNewTeam({ ...newTeam, description: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  rows={3}
+                />
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting || teams.length === 0}
-                  className={`bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${
-                    (isSubmitting || teams.length === 0) ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                 >
-                  {isSubmitting ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Adding...
-                    </>
-                  ) : (
-                    'Add Team Member'
-                  )}
+                  Create Team
                 </button>
               </div>
             </form>
-
-            {/* Teams List */}
-            <div className="bg-[#262d40] rounded-lg overflow-hidden mb-8">
-              <h2 className="text-xl font-semibold p-4 border-b border-gray-700">Teams</h2>
-              {loading ? (
-                <div className="flex justify-center items-center h-32">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
-                </div>
-              ) : teams.length > 0 ? (
-                <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  <div className="inline-block min-w-full align-middle">
-                    <div className="overflow-hidden">
-                      <table className="min-w-full divide-y divide-gray-700 table-fixed">
-                        <thead>
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Team Name</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[250px]">Manager Email</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-700">
-                          {teams.map((team, index) => (
-                            <tr key={index} className="hover:bg-[#2a3347] transition-colors duration-200">
-                              <td className="px-6 py-4 whitespace-nowrap text-sm">{team.team_name}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm">{team.manager_email}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-center text-gray-400 py-4">No teams found. Create your first team above.</p>
-              )}
-            </div>
-
-            {/* Team Members List */}
-            <div className="bg-[#262d40] rounded-lg overflow-hidden">
-              <h2 className="text-xl font-semibold p-4 border-b border-gray-700">Team Members</h2>
-              {loading ? (
-                <div className="flex justify-center items-center h-32">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
-                </div>
-              ) : teamMembers.length > 0 ? (
-                <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  <div className="inline-block min-w-full align-middle">
-                    <div className="overflow-hidden">
-                      <table className="min-w-full divide-y divide-gray-700 table-fixed">
-                        <thead>
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Team Name</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">Employee ID</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[250px]">Employee Email</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Manager Name</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">Team Member Name</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-700">
-                          {teamMembers.map((member, index) => (
-                            <tr key={index} className="hover:bg-[#2a3347] transition-colors duration-200">
-                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.aditi_teams?.team_name || 'Unknown'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.employee_id}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.employee_email}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.manager_name}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm">{member.team_member_name}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-center text-gray-400 py-4">No team members found.</p>
-              )}
-            </div>
           </div>
         </div>
-        
-        <footer className="bg-[#1e2538] py-3">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <p className="text-center text-gray-400 text-sm">
-              © {new Date().getFullYear()} Aditi Updates. All rights reserved.
-            </p>
+      )}
+
+      {/* Add Member Modal */}
+      {showAddMemberModal && selectedTeam && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4">Add Member to {selectedTeam.name}</h2>
+            <form onSubmit={handleAddMember}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700">Email</label>
+                <input
+                  type="email"
+                  value={newMember.email}
+                  onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700">Role</label>
+                <select
+                  value={newMember.role}
+                  onChange={(e) => setNewMember({ ...newMember, role: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="member">Member</option>
+                  <option value="manager">Manager</option>
+                </select>
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddMemberModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  Add Member
+                </button>
+              </div>
+            </form>
           </div>
-        </footer>
-      </div>
-    </>
+        </div>
+      )}
+    </Layout>
   );
 } 

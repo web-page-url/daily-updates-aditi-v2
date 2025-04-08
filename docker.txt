@@ -1,0 +1,118 @@
+
+I'll provide you with a comprehensive step-by-step guide to set up Keycloak with your Supabase integration:
+
+1. Install Keycloak
+   # Using Docker (recommended)
+   docker run -p 8080:8080 -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin quay.io/keycloak/keycloak:latest start-dev
+
+
+2.   Initial Keycloak Setup:
+Access Keycloak Admin Console at http://localhost:8080
+Click "Administration Console"
+Login with:
+Username: admin
+Password: admin
+
+3. Create a New Realm:
+In the top-left dropdown, click "Create Realm"
+Name: aditi-realm
+Click "Create"
+
+4. Configure Realm Settings:
+Go to "Realm Settings" → "Login" tab
+Enable "User registration"
+Enable "Email as username"
+Save changes
+
+5. Create Client in Keycloak:
+Go to "Clients" → "Create client"
+
+Configure with these settings
+     Client ID: nextjs-client
+     Client Protocol: openid-connect
+     Root URL: http://localhost:3000
+     Valid Redirect URIs: http://localhost:3000/api/auth/callback/keycloak
+     Web Origins: http://localhost:3000
+     Access Type: confidential
+
+     Click "Save"
+
+6. Get Client Credentials:
+After saving, go to the "Credentials" tab
+Copy the "Secret" value
+This will be your KEYCLOAK_SECRET
+
+7. Create Roles in Keycloak:
+Go to "Realm Roles" → "Create Role"
+Create these roles:
+admin
+manager
+user
+
+8. Set Up Supabase:
+Create a new table in Supabase:
+
+   create table aditi_user_roles (
+     id uuid default uuid_generate_v4() primary key,
+     user_email text unique not null,
+     role text not null check (role in ('admin', 'manager', 'user')),
+     created_at timestamp with time zone default timezone('utc'::text, now()) not null
+   );
+
+
+9. Create Environment Variables:
+Create a .env.local file in your project root:
+
+   # Keycloak Configuration
+   KEYCLOAK_ID=nextjs-client
+   KEYCLOAK_SECRET=your-secret-from-step-6
+   KEYCLOAK_ISSUER=http://localhost:8080/realms/aditi-realm
+
+   # NextAuth Configuration
+   NEXTAUTH_URL=http://localhost:3000
+   NEXTAUTH_SECRET=your-random-secret-string
+
+   # Supabase Configuration
+   NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+
+10. Install Required Dependencies:
+    npm install next-auth @auth/keycloak-provider @supabase/supabase-js
+
+
+11. Configure NextAuth:
+We've already set up the NextAuth configuration in src/pages/api/auth/[...nextauth].ts
+The configuration includes:
+Keycloak provider setup
+JWT and session handling
+User role synchronization with Supabase
+Custom sign-in logic
+
+12. Test the Integration:
+Start your Next.js application
+Try signing in at http://localhost:3000/auth/signin
+You should be redirected to Keycloak's login page
+After successful login, check:
+The user is created in Supabase
+The user's role is correctly set
+The session contains the correct role information
+
+13. Troubleshooting Tips:
+If you get CORS errors:
+Check Keycloak client's "Web Origins" settings
+Verify all URLs in the configuration
+If authentication fails:
+Check browser console for errors
+Check server logs
+Verify environment variables
+If role synchronization fails:
+Check Supabase connection
+Verify table permissions
+Check the syncUserRoleToSupabase function logs
+
+14. Security Considerations:
+Use HTTPS in production
+Set appropriate session timeouts
+Configure proper CORS settings
+Use secure passwords for Keycloak admin
+Regularly backup your Keycloak and Supabase data
