@@ -144,3 +144,32 @@ CREATE POLICY "Daily updates can be created by team members" ON aditi_daily_upda
        'Additional test notes'
    )
    RETURNING *;
+
+
+   -- Add admin table if it doesn't exist
+CREATE TABLE IF NOT EXISTS aditi_admins (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL UNIQUE,
+  name TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  last_login TIMESTAMP WITH TIME ZONE
+);
+
+-- Create function to add admin user
+CREATE OR REPLACE FUNCTION add_admin(
+  admin_email TEXT,
+  admin_name TEXT DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+  new_id UUID;
+BEGIN
+  INSERT INTO aditi_admins (email, name)
+  VALUES (admin_email, admin_name)
+  RETURNING id INTO new_id;
+  
+  RETURN new_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Add the admin user
+SELECT add_admin('anubhav.chaudhary@aditiconsulting.com', 'Anubhav Chaudhary');
