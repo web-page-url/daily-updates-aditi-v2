@@ -13,6 +13,10 @@ interface Blocker {
   expected_resolution_date: string;
 }
 
+// Key for storing form data in localStorage
+const FORM_CACHE_KEY = 'aditi_update_form_data';
+const BLOCKERS_CACHE_KEY = 'aditi_update_blockers';
+
 export default function DailyUpdateFormPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -38,18 +42,123 @@ export default function DailyUpdateFormPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAnimation, setShowAnimation] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  // Track if the form has been loaded from cache
+  const [formLoaded, setFormLoaded] = useState(false);
+  // Track when data is auto-saved
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [showSavedIndicator, setShowSavedIndicator] = useState(false);
+
+  // Set up beforeunload event listener to warn when navigating away with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Check if there are any meaningful changes to warn about
+      const hasContent = 
+        formData.tasks_completed.trim() !== '' || 
+        formData.additional_notes.trim() !== '' || 
+        blockers.length > 0;
+      
+      if (hasContent) {
+        // Standard way to show a confirmation dialog before leaving
+        e.preventDefault();
+        const message = 'You have unsaved changes. Are you sure you want to leave?';
+        e.returnValue = message; // For older browsers
+        return message; // For modern browsers
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [formData, blockers]);
+
+  // Show saved indicator briefly whenever data is saved
+  const showSavedMessage = () => {
+    setLastSaved(new Date());
+    setShowSavedIndicator(true);
+    setTimeout(() => {
+      setShowSavedIndicator(false);
+    }, 2000);
+  };
+
+  // Load saved form data from localStorage when component mounts
+  useEffect(() => {
+    try {
+      const savedForm = localStorage.getItem(FORM_CACHE_KEY);
+      const savedBlockers = localStorage.getItem(BLOCKERS_CACHE_KEY);
+      const savedTeam = localStorage.getItem('aditi_selected_team');
+      
+      if (savedForm) {
+        const parsedForm = JSON.parse(savedForm);
+        setFormData(parsedForm);
+        setFormLoaded(true);
+      }
+      
+      if (savedBlockers) {
+        const parsedBlockers = JSON.parse(savedBlockers);
+        setBlockers(parsedBlockers);
+      }
+      
+      if (savedTeam) {
+        setSelectedTeam(savedTeam);
+      }
+    } catch (error) {
+      console.error('Error loading saved form data:', error);
+    }
+  }, []);
+
+  // Save form data whenever it changes
+  useEffect(() => {
+    // Only save after the form has been loaded or changed by the user
+    if (formLoaded) {
+      try {
+        localStorage.setItem(FORM_CACHE_KEY, JSON.stringify(formData));
+        showSavedMessage();
+      } catch (error) {
+        console.error('Error saving form data:', error);
+      }
+    }
+  }, [formData, formLoaded]);
+
+  // Save blockers whenever they change
+  useEffect(() => {
+    if (formLoaded) {
+      try {
+        localStorage.setItem(BLOCKERS_CACHE_KEY, JSON.stringify(blockers));
+        showSavedMessage();
+      } catch (error) {
+        console.error('Error saving blockers data:', error);
+      }
+    }
+  }, [blockers, formLoaded]);
+  
+  // Save selected team whenever it changes
+  useEffect(() => {
+    if (formLoaded && selectedTeam) {
+      try {
+        localStorage.setItem('aditi_selected_team', selectedTeam);
+        showSavedMessage();
+      } catch (error) {
+        console.error('Error saving selected team:', error);
+      }
+    }
+  }, [selectedTeam, formLoaded]);
 
   useEffect(() => {
-    if (user) {
+    if (user && !formLoaded) {
+      // Only set user data if we haven't loaded from cache
       setFormData(prev => ({
         ...prev,
         employee_name: user.name || '',
         email_address: user.email || '',
       }));
       
-      if (user.teamId) {
+      if (user.teamId && !selectedTeam) {
         setSelectedTeam(user.teamId);
       }
+      
+      setFormLoaded(true);
     }
     
     fetchUserTeams();
@@ -168,6 +277,17 @@ export default function DailyUpdateFormPage() {
     return Object.keys(errors).length === 0;
   };
 
+  // Clear form data from localStorage after successful submission
+  const clearSavedFormData = () => {
+    try {
+      localStorage.removeItem(FORM_CACHE_KEY);
+      localStorage.removeItem(BLOCKERS_CACHE_KEY);
+      localStorage.removeItem('aditi_selected_team');
+    } catch (error) {
+      console.error('Error clearing saved form data:', error);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -199,21 +319,36 @@ export default function DailyUpdateFormPage() {
         if (error) {
           throw new Error(`Database error: ${error.message}`);
         }
+        
+        // Clear saved form data after successful submission
+        clearSavedFormData();
+        
+        // Show success animation
+        setShowAnimation(true);
+        setTimeout(() => {
+          setShowAnimation(false);
+          router.push('/user-dashboard');
+        }, 2000);
       } else {
-        // Insert each blocker as a separate daily update
-        const updates = blockers.map(blocker => ({
+        // If there are blockers, create an update for each blocker
+        const baseDailyUpdate = {
           employee_name: formData.employee_name,
           employee_id: formData.employee_id,
           employee_email: formData.email_address,
           team_id: selectedTeam,
           tasks_completed: formData.tasks_completed,
           status: formData.status,
-          additional_notes: formData.additional_notes,
+          additional_notes: formData.additional_notes
+        };
+
+        // Create updates for each blocker
+        const updates = blockers.map(blocker => ({
+          ...baseDailyUpdate,
           blocker_type: blocker.type,
           blocker_description: blocker.description,
-          expected_resolution_date: blocker.expected_resolution_date,
+          expected_resolution_date: blocker.expected_resolution_date
         }));
-        
+
         const { data, error } = await supabase
           .from('aditi_daily_updates')
           .insert(updates)
@@ -222,32 +357,20 @@ export default function DailyUpdateFormPage() {
         if (error) {
           throw new Error(`Database error: ${error.message}`);
         }
-      }
-
-      toast.success('Daily update submitted successfully!');
-      setShowAnimation(true);
-      
-      setTimeout(() => {
-        setShowAnimation(false);
-        // Clear form
-        setFormData({
-          employee_name: user?.name || '',
-          employee_id: formData.employee_id, // Keep the employee ID
-          email_address: user?.email || '',
-          tasks_completed: '',
-          status: 'in-progress',
-          additional_notes: '',
-        });
-        setBlockers([]);
         
-        // Redirect to user dashboard
-        router.push('/user-dashboard');
-      }, 2000);
-      
+        // Clear saved form data after successful submission
+        clearSavedFormData();
+
+        // Show success animation
+        setShowAnimation(true);
+        setTimeout(() => {
+          setShowAnimation(false);
+          router.push('/user-dashboard');
+        }, 2000);
+      }
     } catch (error: any) {
-      console.error('Error submitting daily update:', error);
-      toast.error(error.message || 'Failed to submit daily update');
-    } finally {
+      console.error('Submission error:', error);
+      toast.error(error.message || 'Failed to submit update');
       setIsSubmitting(false);
     }
   };
@@ -304,9 +427,72 @@ export default function DailyUpdateFormPage() {
               <div className="bg-gradient-to-r from-purple-600 to-indigo-700 text-white py-6 px-6 md:px-8">
                 <h1 className="text-xl md:text-2xl font-bold mb-2">Daily Update Form</h1>
                 <p className="text-purple-100">{currentDate}</p>
+                
+                {/* Auto-save indicator */}
+                <div className="mt-2 flex items-center text-sm">
+                  {showSavedIndicator && (
+                    <div className="flex items-center text-green-300 animate-pulse">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Auto-saved</span>
+                    </div>
+                  )}
+                  {lastSaved && !showSavedIndicator && (
+                    <div className="text-purple-200 text-xs">
+                      Last saved: {lastSaved.toLocaleTimeString()}
+                    </div>
+                  )}
+                </div>
               </div>
+              
+              {/* Unsaved changes warning banner */}
+              {formLoaded && (formData.tasks_completed.trim() !== '' || blockers.length > 0) && (
+                <div className="bg-blue-900 text-blue-100 px-6 py-2 text-sm">
+                  <div className="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Your work is being saved automatically. You can safely navigate away and come back to continue.</span>
+                  </div>
+                </div>
+              )}
 
               <form onSubmit={handleSubmit} className="p-6 md:p-8">
+                {/* Add the Clear Draft button */}
+                {formLoaded && (formData.tasks_completed.trim() !== '' || blockers.length > 0) && (
+                  <div className="mb-6 flex justify-between items-center">
+                    <div className="text-sm text-purple-300">
+                      <span className="mr-1">✓</span> Draft saved automatically
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to clear all draft data? This cannot be undone.')) {
+                          clearSavedFormData();
+                          setFormData({
+                            employee_name: user?.name || '',
+                            employee_id: '',
+                            email_address: user?.email || '',
+                            tasks_completed: '',
+                            status: 'in-progress',
+                            additional_notes: '',
+                          });
+                          setBlockers([]);
+                          setLastSaved(null);
+                          toast.success('Draft cleared successfully');
+                        }
+                      }}
+                      className="text-sm text-red-400 hover:text-red-300 focus:outline-none flex items-center"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Clear Draft
+                    </button>
+                  </div>
+                )}
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Employee Name */}
                   <div>

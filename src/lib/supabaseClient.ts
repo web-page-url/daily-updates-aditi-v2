@@ -12,7 +12,38 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Supabase credentials are missing. Please check your environment variables.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create client with enhanced session persistence options
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    storage: {
+      getItem: (key) => {
+        try {
+          return localStorage.getItem(key);
+        } catch (error) {
+          console.error('localStorage.getItem error:', error);
+          return null;
+        }
+      },
+      setItem: (key, value) => {
+        try {
+          localStorage.setItem(key, value);
+        } catch (error) {
+          console.error('localStorage.setItem error:', error);
+        }
+      },
+      removeItem: (key) => {
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {
+          console.error('localStorage.removeItem error:', error);
+        }
+      },
+    },
+    autoRefreshToken: true,
+    debug: false
+  }
+});
 
 // Test the connection
 supabase.auth.getSession().then(({ data, error }) => {
@@ -55,4 +86,5 @@ export interface DailyUpdate {
   expected_resolution_date: string;
   additional_notes: string;
   created_at: string;
+  aditi_teams?: Team;
 } 

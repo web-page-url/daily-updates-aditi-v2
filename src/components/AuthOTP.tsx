@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
 
@@ -6,6 +6,20 @@ export default function AuthOTP() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
+  const [lastLoginEmail, setLastLoginEmail] = useState<string | null>(null);
+
+  // Check for previously logged in email
+  useEffect(() => {
+    try {
+      const savedEmail = localStorage.getItem('last_login_email');
+      if (savedEmail) {
+        setLastLoginEmail(savedEmail);
+        setEmail(savedEmail);
+      }
+    } catch (error) {
+      console.error('Error retrieving last login email:', error);
+    }
+  }, []);
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,10 +36,19 @@ export default function AuthOTP() {
         email,
         options: {
           emailRedirectTo: window.location.origin,
+          // Set longer session duration (30 days)
+          shouldCreateUser: true
         },
       });
       
       if (error) throw error;
+      
+      // Save the email for future logins
+      try {
+        localStorage.setItem('last_login_email', email);
+      } catch (error) {
+        console.error('Error saving email:', error);
+      }
       
       setOtpSent(true);
       toast.success('OTP sent to your email. Please check your inbox.');
@@ -69,6 +92,12 @@ export default function AuthOTP() {
                 />
               </div>
             </div>
+
+            {lastLoginEmail && lastLoginEmail !== email && (
+              <div className="text-xs text-gray-400">
+                <p>Your previous login was with: <span className="text-purple-300">{lastLoginEmail}</span></p>
+              </div>
+            )}
 
             <div>
               <button

@@ -24,31 +24,57 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Cache key for storing user data
+const USER_CACHE_KEY = 'aditi_user_cache';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
+  // Load cached user on mount
+  useEffect(() => {
+    try {
+      const cachedUser = localStorage.getItem(USER_CACHE_KEY);
+      if (cachedUser) {
+        setUser(JSON.parse(cachedUser));
+      }
+    } catch (error) {
+      console.error('Error loading cached user:', error);
+    }
+  }, []);
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setIsLoading(true);
+      console.log('Auth state change:', event);
       
       if (event === 'SIGNED_IN' && session) {
         await refreshUser();
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
+        try {
+          localStorage.removeItem(USER_CACHE_KEY);
+        } catch (error) {
+          console.error('Error removing cached user:', error);
+        }
         
         // Don't redirect to login if already on login page
         if (router.pathname !== '/') {
           router.push('/');
         }
+      } else if (event === 'TOKEN_REFRESHED') {
+        // When token is refreshed, we don't need to do a full user refresh
+        // Just update the session status
+        console.log('Token refreshed successfully');
       }
-      
-      setIsLoading(false);
     });
 
-    // Initial session check
-    checkCurrentSession();
+    // Initial session check only if we don't have a user already
+    if (!user) {
+      checkCurrentSession();
+    } else {
+      setIsLoading(false);
+    }
 
     return () => {
       subscription.unsubscribe();
@@ -57,12 +83,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const checkCurrentSession = async () => {
     try {
+      setIsLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session) {
+        // Check if we have cached user data
+        try {
+          const cachedUser = localStorage.getItem(USER_CACHE_KEY);
+          if (cachedUser) {
+            // If we have cached user data and a valid session, use the cached data
+            setUser(JSON.parse(cachedUser));
+            setIsLoading(false);
+            
+            // Refresh user data in the background without blocking the UI
+            refreshUser().catch(error => {
+              console.error('Background refresh error:', error);
+            });
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking cached user:', error);
+        }
+        
+        // If no cached data, do a full refresh
         await refreshUser();
       } else {
         setUser(null);
+        try {
+          localStorage.removeItem(USER_CACHE_KEY);
+        } catch (error) {
+          console.error('Error removing cached user:', error);
+        }
       }
     } catch (error) {
       console.error('Session check error:', error);
@@ -79,6 +130,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (!authUser) {
         setUser(null);
+        try {
+          localStorage.removeItem(USER_CACHE_KEY);
+        } catch (error) {
+          console.error('Error removing cached user:', error);
+        }
         return;
       }
       
@@ -96,14 +152,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('User data fetch error:', userError);
       }
       
-      setUser({
+      const updatedUser = {
         id: authUser.id,
         email: authUser.email || '',
         name: userData?.team_member_name || authUser.email?.split('@')[0] || 'User',
         role,
         teamId: userData?.team_id,
         teamName: userData?.aditi_teams?.team_name
-      });
+      };
+      
+      setUser(updatedUser);
+      
+      // Cache the user data for future use
+      try {
+        localStorage.setItem(USER_CACHE_KEY, JSON.stringify(updatedUser));
+      } catch (error) {
+        console.error('Error caching user data:', error);
+      }
     } catch (error) {
       console.error('Refresh user error:', error);
       toast.error('Failed to load user data');
@@ -147,6 +212,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await supabase.auth.signOut();
       setUser(null);
+      
+      // Clear cached user data
+      try {
+        localStorage.removeItem(USER_CACHE_KEY);
+      } catch (error) {
+        console.error('Error removing cached user:', error);
+      }
+      
       toast.success('Successfully signed out');
       router.push('/');
     } catch (error) {

@@ -85,6 +85,19 @@ export default function UserDashboard() {
     }
   };
 
+  const getBlockerBadge = (blockerType: string) => {
+    switch (blockerType) {
+      case 'Blockers':
+        return <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-900 text-red-200">Blockers</span>;
+      case 'Risks':
+        return <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-800 text-yellow-200">Risks</span>;
+      case 'Dependencies':
+        return <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-900 text-blue-200">Dependencies</span>;
+      default:
+        return <span className="text-gray-400">None</span>;
+    }
+  };
+
   const goToDailyUpdateForm = () => {
     router.push('/daily-update-form');
   };
@@ -221,41 +234,114 @@ export default function UserDashboard() {
                   </thead>
                   <tbody className="bg-[#1e2538] divide-y divide-gray-700">
                     {userUpdates.map((update) => (
-                      <tr key={update.id} className={expandedRows[update.id] ? 'bg-[#262d40]' : ''}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                          {formatDate(update.created_at)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                          {update.aditi_teams?.team_name || 'Unknown Team'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {getStatusBadge(update.status)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-200 max-w-xs truncate">
-                          {expandedRows[update.id] ? (
-                            update.tasks_completed
-                          ) : (
-                            <div className="max-w-xs truncate">{update.tasks_completed}</div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                          {update.blocker_type ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-200">
-                              {update.blocker_type}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">None</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                          <button
-                            onClick={() => toggleRowExpansion(update.id)}
-                            className="text-purple-400 hover:text-purple-300"
-                          >
-                            {expandedRows[update.id] ? 'Collapse' : 'Expand'}
-                          </button>
-                        </td>
-                      </tr>
+                      <>
+                        <tr 
+                          key={update.id} 
+                          onClick={() => toggleRowExpansion(update.id)}
+                          className={`transition-colors duration-200 ${
+                            expandedRows[update.id] 
+                              ? 'bg-[#2a3347] shadow-md' 
+                              : 'hover:bg-[#262d40] cursor-pointer'
+                          }`}
+                        >
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                            {formatDate(update.created_at)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                            {update.aditi_teams?.team_name || 'Unknown Team'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {getStatusBadge(update.status)}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-200 max-w-xs">
+                            <div className={expandedRows[update.id] ? "" : "truncate"}>
+                              {expandedRows[update.id] ? "" : update.tasks_completed}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                            {update.blocker_type ? getBlockerBadge(update.blocker_type) : <span className="text-gray-400">None</span>}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleRowExpansion(update.id);
+                              }}
+                              className="flex items-center px-3 py-1 rounded-md text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 transition-colors duration-200"
+                            >
+                              {expandedRows[update.id] ? (
+                                <>
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd" />
+                                  </svg>
+                                  <span>Collapse</span>
+                                </>
+                              ) : (
+                                <>
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                                  </svg>
+                                  <span>Expand</span>
+                                </>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                        {expandedRows[update.id] && (
+                          <tr className="bg-[#1e2538] border-b border-gray-700">
+                            <td colSpan={6} className="px-6 py-4">
+                              <div className="rounded-md bg-[#262d40] p-4 shadow-inner animate-fadeIn">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                  <div>
+                                    <h4 className="text-sm font-medium text-purple-300 mb-2 flex items-center">
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                      </svg>
+                                      Tasks Completed
+                                    </h4>
+                                    <div className="bg-[#1e2538] p-3 rounded-md text-sm text-white whitespace-pre-wrap">
+                                      {update.tasks_completed || 'No tasks recorded'}
+                                    </div>
+                                  </div>
+                                  
+                                  <div>
+                                    {update.blocker_type ? (
+                                      <>
+                                        <h4 className="text-sm font-medium text-purple-300 mb-2 flex items-center">
+                                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                          </svg>
+                                          {update.blocker_type}
+                                        </h4>
+                                        <div className="bg-[#1e2538] p-3 rounded-md text-sm text-white">
+                                          <p className="whitespace-pre-wrap mb-2">{update.blocker_description || 'No description provided'}</p>
+                                          {update.expected_resolution_date && (
+                                            <div className="mt-2 text-xs text-gray-300">
+                                              <span className="font-medium">Expected Resolution:</span> {new Date(update.expected_resolution_date).toLocaleDateString()}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <h4 className="text-sm font-medium text-purple-300 mb-2 flex items-center">
+                                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                          </svg>
+                                          Additional Notes
+                                        </h4>
+                                        <div className="bg-[#1e2538] p-3 rounded-md text-sm text-white whitespace-pre-wrap">
+                                          {update.additional_notes || 'No additional notes provided'}
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     ))}
                   </tbody>
                 </table>

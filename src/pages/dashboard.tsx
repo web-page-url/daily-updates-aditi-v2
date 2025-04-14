@@ -304,13 +304,13 @@ export default function Dashboard() {
                 <div className="flex items-center">
                   <span className="mr-4 text-sm text-gray-300">
                     {/* {user ? `Welcome, ${user.user_metadata.name}` : 'Loading...'} */}
-                    {user ? `Welcome, }` : 'Loading...'}
+                    {user ? `Welcome, Admin }` : 'Loading...'}
                   </span>
                   <button
-                    onClick={() => router.push('/')}
+                    onClick={() => router.push('/team-management')}
                     className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm transition-colors duration-300"
                   >
-                    Daily Update Form
+                    Team Management
                   </button>
                 </div>
               </div>
