@@ -72,3 +72,8 @@ For any questions or support needs, please contact the development team.
 ---
 
 © 2023 Aditi Consulting. All rights reserved.
+
+I see that in this page --> daily-update-form/
+The team name fetching --> cause the full page to reload.
+
+

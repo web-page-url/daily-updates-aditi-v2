@@ -304,7 +304,7 @@ export default function Dashboard() {
                 <div className="flex items-center">
                   <span className="mr-4 text-sm text-gray-300">
                     {/* {user ? `Welcome, ${user.user_metadata.name}` : 'Loading...'} */}
-                    {user ? `Welcome, Admin }` : 'Loading...'}
+                    {user ? `Welcome, :)` : 'Loading...'}
                   </span>
                   <button
                     onClick={() => router.push('/team-management')}

@@ -12,6 +12,7 @@ export default function ProtectedRoute({ children, allowedRoles = ['user', 'mana
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [isPageReady, setIsPageReady] = useState(false);
   
   useEffect(() => {
     // Only attempt redirects if not already redirecting and not loading
@@ -38,16 +39,32 @@ export default function ProtectedRoute({ children, allowedRoles = ['user', 'mana
           default:
             router.replace('/').then(() => setIsRedirecting(false));
         }
+        return;
       }
+      
+      // If we get here, user is authenticated and authorized
+      setIsPageReady(true);
     }
   }, [isLoading, user, router, allowedRoles, isRedirecting]);
 
-  // Show loading spinner while checking authentication or redirecting
-  // if (isLoading || isRedirecting) {
-  //   return <LoadingSpinner />;
-  // }
+  // Event listener for storage events to handle auth changes in other tabs
+  useEffect(() => {
+    const handleStorageChange = () => {
+      // Force re-checking auth state when localStorage changes
+      setIsPageReady(false);
+    };
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', handleStorageChange);
+      
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+      };
+    }
+  }, []);
 
-  if (isLoading ) {
+  // Show loading spinner while checking authentication or redirecting
+  if (isLoading || isRedirecting || !isPageReady) {
     return <LoadingSpinner />;
   }
 
