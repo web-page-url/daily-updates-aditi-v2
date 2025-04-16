@@ -15,6 +15,7 @@ interface User {
   role: UserRole;
   teamId?: string;
   teamName?: string;
+  lastChecked?: number;
 }
 
 interface AuthContextType {
@@ -34,10 +35,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [lastVisibilityCheck, setLastVisibilityCheck] = useState(0);
   const [isCheckingSession, setIsCheckingSession] = useState(false);
 
+  // Initialize with cached user data if available
+  useEffect(() => {
+    // First try to load from localStorage to avoid flash of loading state
+    if (typeof window !== 'undefined') {
+      try {
+        const cachedUser = localStorage.getItem(USER_CACHE_KEY);
+        if (cachedUser) {
+          const parsedUser = JSON.parse(cachedUser);
+          // Only use cached data if it's less than 30 minutes old
+          if (parsedUser.lastChecked && Date.now() - parsedUser.lastChecked < 30 * 60 * 1000) {
+            setUser(parsedUser);
+            // Still check session but don't show loading state
+            setTimeout(() => checkCurrentSession(false), 100);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Error loading cached user:', error);
+      }
+    }
+    
+    // If no valid cached user, do a full session check
+    checkCurrentSession(true);
+  }, []);
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setIsLoading(true);
-      
       if (event === 'SIGNED_IN' && session) {
         await refreshUser();
       } else if (event === 'SIGNED_OUT') {
@@ -48,21 +72,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           router.push('/');
         }
       }
-      
-      setIsLoading(false);
     });
 
-    // Initial session check
-    checkCurrentSession();
+    // Set a timeout to force-clear loading state in case something hangs
+    const loadingTimeout = setTimeout(() => {
+      if (isLoading) {
+        console.log('Forcing loading state to false after timeout');
+        setIsLoading(false);
+      }
+    }, 5000); // 5 second safety timeout
 
     return () => {
       subscription.unsubscribe();
+      clearTimeout(loadingTimeout);
     };
-  }, []);
+  }, [isLoading]);
 
-  const checkCurrentSession = async () => {
+  const checkCurrentSession = async (showLoading = true) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      if (showLoading) {
+        setIsLoading(true);
+      }
+      
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('Session check error:', error);
+        setUser(null);
+        return;
+      }
       
       if (session) {
         await refreshUser();
@@ -71,24 +109,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Session check error:', error);
+      setUser(null);
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
   };
 
   // Silently check session without showing loading state
   const silentSessionCheck = async () => {
     try {
+      if (isCheckingSession) return; // Prevent concurrent checks
+      setIsCheckingSession(true);
+      
       const { data: { session }, error } = await supabase.auth.getSession();
       
       if (error) {
         console.error('Session check error:', error);
-        
-        // Clear user state if there's a session error
         setUser(null);
         try {
           localStorage.removeItem(USER_CACHE_KEY);
-          sessionStorage.removeItem('aditi_supabase_auth');
         } catch (storageError) {
           console.error('Error clearing cached user after session error:', storageError);
         }
@@ -116,21 +157,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         try {
           localStorage.removeItem(USER_CACHE_KEY);
-          sessionStorage.removeItem('aditi_supabase_auth');
-          
-          // Also clear Supabase session in localStorage
-          const supabaseItems = [];
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('sb-')) {
-              supabaseItems.push(key);
-            }
-          }
-          
-          // Clear all Supabase-related items
-          supabaseItems.forEach(key => {
-            localStorage.removeItem(key);
-          });
         } catch (error) {
           console.error('Error removing cached user:', error);
         }
@@ -142,7 +168,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Silent session check error:', error);
-      // Don't show error toast for silent checks
+    } finally {
+      setIsCheckingSession(false);
     }
   };
 
@@ -154,46 +181,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now();
-        
-        // When tab becomes visible, always check session validity
-        // This helps prevent 406 errors when switching tabs
-        console.log('Tab became visible, refreshing session...');
-        setLastVisibilityCheck(now);
-        
-        // Force token refresh when returning to tab 
-        supabase.auth.refreshSession().then(({ data, error }) => {
-          if (error) {
-            console.error('Failed to refresh session on tab focus:', error);
-            // Session is invalid, redirect to login
-            setUser(null);
-            try {
-              // Clean up local storage to prevent stale data
-              localStorage.removeItem(USER_CACHE_KEY);
-              sessionStorage.removeItem('aditi_supabase_auth');
-            } catch (storageError) {
-              console.error('Error clearing session data:', storageError);
-            }
-            
-            // Redirect to login page if not already there
-            if (router.pathname !== '/') {
-              router.push('/');
-            }
-          } else if (data.session) {
-            console.log('Session refreshed successfully on tab focus');
-            // Only update the lastChecked timestamp to avoid full reload
-            if (user) {
-              const updatedUser = { ...user, lastChecked: now };
-              setUser(updatedUser);
-              try {
-                localStorage.setItem(USER_CACHE_KEY, JSON.stringify(updatedUser));
-              } catch (storageError) {
-                console.error('Error updating user data:', storageError);
+        // Only refresh if it's been more than 60 seconds since last check
+        // This prevents too many refreshes on Vercel
+        if (now - lastVisibilityCheck > 60000) {
+          console.log('Tab became visible, refreshing session...');
+          setLastVisibilityCheck(now);
+          
+          // Force token refresh when returning to tab
+          supabase.auth.refreshSession().then(({ data, error }) => {
+            if (error) {
+              console.error('Failed to refresh session on tab focus:', error);
+              // Only redirect if error is significant
+              if (error.status === 401 || error.message?.includes('invalid')) {
+                setUser(null);
+                try {
+                  localStorage.removeItem(USER_CACHE_KEY);
+                } catch (storageError) {
+                  console.error('Error clearing session data:', storageError);
+                }
+                
+                // Redirect to login page if not already there
+                if (router.pathname !== '/') {
+                  router.push('/');
+                }
+              }
+            } else if (data.session) {
+              console.log('Session refreshed successfully on tab focus');
+              // Only update the lastChecked timestamp to avoid full reload
+              if (user) {
+                const updatedUser = { ...user, lastChecked: now };
+                setUser(updatedUser);
+                try {
+                  localStorage.setItem(USER_CACHE_KEY, JSON.stringify(updatedUser));
+                } catch (storageError) {
+                  console.error('Error updating user data:', storageError);
+                }
               }
             }
-          }
-        }).catch(error => {
-          console.error('Error during session refresh:', error);
-        });
+          }).catch(error => {
+            console.error('Error during session refresh:', error);
+          });
+        }
       }
     };
     
@@ -215,12 +243,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       }
-      
-      // Handle changes to Supabase auth storage
-      if (event.key && event.key.startsWith('sb-')) {
-        // Force session check when Supabase auth storage changes
-        silentSessionCheck();
-      }
     };
     
     window.addEventListener('storage', handleStorageChange);
@@ -229,16 +251,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [user, lastVisibilityCheck, isCheckingSession]);
+  }, [user, lastVisibilityCheck, isCheckingSession, router.pathname]);
 
   const refreshUser = async () => {
     try {
       setIsLoading(true);
       
-      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const { data: { user: authUser }, error } = await supabase.auth.getUser();
       
-      if (!authUser) {
+      if (error || !authUser) {
         setUser(null);
+        setIsLoading(false);
         return;
       }
       
@@ -256,17 +279,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('User data fetch error:', userError);
       }
       
-      setUser({
+      const updatedUser = {
         id: authUser.id,
         email: authUser.email || '',
         name: userData?.team_member_name || authUser.email?.split('@')[0] || 'User',
         role,
         teamId: userData?.team_id,
-        teamName: userData?.aditi_teams?.team_name
-      });
+        teamName: userData?.aditi_teams?.team_name,
+        lastChecked: Date.now()
+      };
+      
+      setUser(updatedUser);
+      
+      // Cache the user data
+      try {
+        localStorage.setItem(USER_CACHE_KEY, JSON.stringify(updatedUser));
+      } catch (error) {
+        console.error('Error caching user data:', error);
+      }
     } catch (error) {
       console.error('Refresh user error:', error);
-      toast.error('Failed to load user data');
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -307,6 +340,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await supabase.auth.signOut();
       setUser(null);
+      
+      // Clear cached user data
+      try {
+        localStorage.removeItem(USER_CACHE_KEY);
+      } catch (error) {
+        console.error('Error clearing cached user data:', error);
+      }
+      
       toast.success('Successfully signed out');
       router.push('/');
     } catch (error) {
