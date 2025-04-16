@@ -3,8 +3,37 @@ import type { AppProps } from "next/app";
 import { Toaster } from 'react-hot-toast';
 import Head from 'next/head';
 import { AuthProvider } from "@/lib/authContext";
+import { useEffect } from 'react';
+import { useRouter } from 'next/router';
 
 export default function App({ Component, pageProps }: AppProps) {
+  const router = useRouter();
+
+  // Global loading state timeout handler
+  useEffect(() => {
+    // This adds a safety mechanism for all pages to prevent hanging loading states
+    const html = document.documentElement;
+    html.classList.add('js-loading');
+    
+    // Force remove loading class after 8 seconds max
+    const globalTimeout = setTimeout(() => {
+      html.classList.remove('js-loading');
+      console.log('Global loading safety timeout reached');
+    }, 8000);
+    
+    // Listen for route change end
+    const handleRouteChangeComplete = () => {
+      html.classList.remove('js-loading');
+    };
+    
+    router.events.on('routeChangeComplete', handleRouteChangeComplete);
+    
+    return () => {
+      clearTimeout(globalTimeout);
+      router.events.off('routeChangeComplete', handleRouteChangeComplete);
+    };
+  }, [router]);
+
   return (
     <AuthProvider>
       <Head>
