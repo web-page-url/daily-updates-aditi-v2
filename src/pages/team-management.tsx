@@ -3,6 +3,7 @@ import { supabase, Team, TeamMember } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
 import Head from 'next/head';
 import Link from 'next/link';
+import { USER_CACHE_KEY } from '../lib/authContext';
 
 interface TeamMemberFormData {
   team_id: string;
@@ -37,6 +38,9 @@ export default function TeamManagement() {
   const [error, setError] = useState('');
   const [teamError, setTeamError] = useState('');
   const [showTeamForm, setShowTeamForm] = useState(false);
+  const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [lastFetched, setLastFetched] = useState<Date | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   // Fetch existing teams and team members
   useEffect(() => {
@@ -70,6 +74,15 @@ export default function TeamManagement() {
 
   const fetchTeamMembers = async () => {
     try {
+      // Set a hard timeout to prevent the loader from getting stuck forever
+      const timeout = setTimeout(() => {
+        console.log('Team members fetch timeout reached');
+        setLoading(false);
+      }, 15000); // 15 seconds max loading time
+      
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+      setLoadingTimeout(timeout);
+      
       const { data, error } = await supabase
         .from('aditi_team_members')
         .select(`
@@ -79,15 +92,62 @@ export default function TeamManagement() {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error fetching team members:', error);
+        // Check for 406 error (Not Acceptable)
+        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
+          console.error('Session token issue detected (406 error). Attempting to refresh session...');
+          
+          // Try to refresh the session
+          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (refreshError || !sessionData.session) {
+            console.error('Failed to refresh session after 406 error:', refreshError);
+            
+            // Clear any cached authentication data
+            try {
+              localStorage.removeItem(USER_CACHE_KEY);
+              
+              // Force redirect to login page
+              window.location.href = '/';
+              return;
+            } catch (e) {
+              console.error('Error clearing cache:', e);
+            }
+          }
+          
+          // Retry the fetch after successful token refresh
+          console.log('Session refreshed, retrying data fetch...');
+          const { data: retryData, error: retryError } = await supabase
+            .from('aditi_team_members')
+            .select(`
+              *,
+              aditi_teams(*)
+            `)
+            .order('created_at', { ascending: false });
+            
+          if (retryError) {
+            throw retryError;
+          }
+          
+          setTeamMembers(retryData || []);
+          setLastFetched(new Date());
+          setDataLoaded(true);
+          return;
+        }
+        
         throw error;
       }
       
       setTeamMembers(data || []);
+      setLastFetched(new Date());
+      setDataLoaded(true);
     } catch (error) {
       if (error instanceof Error) {
         toast.error('Failed to load team members');
       }
+      // Even in case of error, provide empty data to prevent UI from being stuck
+      setTeamMembers([]);
+    } finally {
+      if (loadingTimeout) clearTimeout(loadingTimeout);
     }
   };
 

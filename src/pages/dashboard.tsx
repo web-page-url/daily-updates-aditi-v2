@@ -43,6 +43,8 @@ export default function Dashboard() {
   const [pageSize, setPageSize] = useState(50);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -95,6 +97,16 @@ export default function Dashboard() {
   const fetchData = async (teamFilter: string = '') => {
     try {
       setIsLoading(true);
+      
+      // Set a hard timeout to prevent the loader from getting stuck forever
+      const timeout = setTimeout(() => {
+        setIsLoading(false);
+        console.log('Fetch data timeout reached, forcing loading state to false');
+      }, 15000); // 15 seconds max loading time
+      
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+      setLoadingTimeout(timeout);
+      
       let query = supabase
         .from('aditi_daily_updates')
         .select('*, aditi_teams(*)');
@@ -118,6 +130,7 @@ export default function Dashboard() {
           setFilteredData([]);
           calculateStats([]);
           setIsLoading(false);
+          if (loadingTimeout) clearTimeout(loadingTimeout);
           return;
         }
       }
@@ -126,16 +139,84 @@ export default function Dashboard() {
       
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        // Check for 406 error (Not Acceptable)
+        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
+          console.error('Session token issue detected (406 error). Attempting to refresh session...');
+          
+          // Try to refresh the session
+          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (refreshError || !sessionData.session) {
+            console.error('Failed to refresh session after 406 error:', refreshError);
+            
+            // Clear any cached authentication data and sign out
+            try {
+              await signOut();
+              return;
+            } catch (e) {
+              console.error('Error during sign out after 406 error:', e);
+              // Force redirect to login page if sign out fails
+              window.location.href = '/';
+              return;
+            }
+          }
+          
+          // Retry the fetch after successful token refresh
+          console.log('Session refreshed, retrying data fetch...');
+          
+          // Rebuild the query
+          let retryQuery = supabase
+            .from('aditi_daily_updates')
+            .select('*, aditi_teams(*)');
+            
+          if (user?.role === 'admin' && !teamFilter) {
+            // No additional filters needed - admin sees all
+          } 
+          else if (teamFilter) {
+            retryQuery = retryQuery.eq('team_id', teamFilter);
+          }
+          else if (user?.role === 'manager') {
+            const managerTeamIds = teams.map(team => team.id);
+            if (managerTeamIds.length > 0) {
+              retryQuery = retryQuery.in('team_id', managerTeamIds);
+            }
+          }
+          
+          retryQuery = retryQuery.order('created_at', { ascending: false });
+          
+          const { data: retryData, error: retryError } = await retryQuery;
+            
+          if (retryError) {
+            throw retryError;
+          }
+          
+          setHistoricalData(retryData || []);
+          setFilteredData(retryData || []);
+          calculateStats(retryData || []);
+          setLastRefreshed(new Date());
+          setDataLoaded(true);
+          return;
+        }
+        
+        throw error;
+      }
 
       setHistoricalData(data || []);
       setFilteredData(data || []);
       calculateStats(data || []);
+      setLastRefreshed(new Date());
+      setDataLoaded(true);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load updates');
+      // Even in case of error, set empty data to prevent UI from being stuck
+      setHistoricalData([]);
+      setFilteredData([]);
+      calculateStats([]);
     } finally {
       setIsLoading(false);
+      if (loadingTimeout) clearTimeout(loadingTimeout);
     }
   };
 
@@ -215,15 +296,24 @@ export default function Dashboard() {
       headers.join(','),
       ...filteredData.map(update => [
         new Date(update.created_at).toLocaleDateString(),
-        teams.find(t => t.id === update.team_id)?.team_name || '',
+        update.aditi_teams?.team_name || team_name_from_teams(update) || '',
         update.employee_email,
         update.tasks_completed,
         update.status,
-        update.blocker_type,
-        update.expected_resolution_date,
-        update.additional_notes
+        update.blocker_type || '',
+        update.expected_resolution_date || '',
+        update.additional_notes || ''
       ].join(','))
     ].join('\n');
+
+    // Helper function to get team name from teams array if aditi_teams is not present
+    function team_name_from_teams(update: DailyUpdate) {
+      if (update.team_id) {
+        const team = teams.find(t => t.id === update.team_id);
+        return team?.team_name || '';
+      }
+      return '';
+    }
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -567,7 +657,7 @@ export default function Dashboard() {
                                                         {item.blocker_type}
                                                       </span>
                                                       <span className="text-xs text-gray-400">
-                                                        Resolution: {new Date(item.expected_resolution_date).toLocaleDateString()}
+                                                        Resolution: {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : 'Not set'}
                                                       </span>
                                                     </div>
                                                     <p className="text-sm text-white whitespace-pre-wrap">{item.blocker_description}</p>

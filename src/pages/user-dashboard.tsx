@@ -16,6 +16,9 @@ export default function UserDashboard() {
     start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   });
+  const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [lastFetched, setLastFetched] = useState<Date | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -27,6 +30,15 @@ export default function UserDashboard() {
     try {
       setIsLoading(true);
       
+      // Set a hard timeout to prevent the loader from getting stuck forever
+      const timeout = setTimeout(() => {
+        setIsLoading(false);
+        console.log('User updates fetch timeout reached, forcing loading state to false');
+      }, 15000); // 15 seconds max loading time
+      
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+      setLoadingTimeout(timeout);
+      
       const { data, error } = await supabase
         .from('aditi_daily_updates')
         .select('*, aditi_teams(*)')
@@ -35,14 +47,55 @@ export default function UserDashboard() {
         .lte('created_at', `${dateRange.end}T23:59:59.999Z`)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        // Check for 406 error (Not Acceptable)
+        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
+          console.error('Session token issue detected (406 error). Attempting to refresh session...');
+          
+          // Try to refresh the session
+          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (refreshError || !sessionData.session) {
+            console.error('Failed to refresh session after 406 error:', refreshError);
+            // Force user to sign out and go to login page
+            await signOut();
+            return;
+          }
+          
+          // Retry the fetch after successful token refresh
+          console.log('Session refreshed, retrying data fetch...');
+          const { data: retryData, error: retryError } = await supabase
+            .from('aditi_daily_updates')
+            .select('*, aditi_teams(*)')
+            .eq('employee_email', user?.email)
+            .gte('created_at', `${dateRange.start}T00:00:00.000Z`)
+            .lte('created_at', `${dateRange.end}T23:59:59.999Z`)
+            .order('created_at', { ascending: false });
+            
+          if (retryError) {
+            throw retryError;
+          }
+          
+          setUserUpdates(retryData || []);
+          setLastFetched(new Date());
+          setDataLoaded(true);
+          return;
+        }
+        
+        throw error;
+      }
       
       setUserUpdates(data || []);
+      setLastFetched(new Date());
+      setDataLoaded(true);
     } catch (error) {
       console.error('Error fetching user updates:', error);
       toast.error('Failed to load your updates');
+      // Even in case of error, provide empty data to prevent UI from being stuck
+      setUserUpdates([]);
     } finally {
       setIsLoading(false);
+      if (loadingTimeout) clearTimeout(loadingTimeout);
     }
   };
 
@@ -226,7 +279,7 @@ export default function UserDashboard() {
                           {formatDate(update.created_at)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                          {update.aditi_teams?.team_name || 'Unknown Team'}
+                          {/* {update.aditi_teams?.team_name || 'Unknown Team'} */}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {getStatusBadge(update.status)}
