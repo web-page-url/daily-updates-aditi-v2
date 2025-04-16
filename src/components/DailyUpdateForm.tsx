@@ -1,87 +1,54 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import emailjs from '@emailjs/browser';
+import { supabase, DailyUpdate, Team } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
 
 interface DailyUpdateFormProps {
+  userEmail: string;
+  userName: string;
   reportingManager: string;
-  userEmail?: string;
-  userName?: string;
-  teamName?: string;
-  isManager?: boolean;
+  teamName: string;
+  isManager: boolean;
 }
 
-// Blocker type definition
 interface Blocker {
   id: string;
-  type: 'Risk' | 'Issue' | 'Dependency' | 'Blocker';
+  type: 'Blockers' | 'Risks' | 'Dependencies';
   description: string;
-  resolutionDate: string;
+  expected_resolution_date: string;
 }
 
-// Google Sheets script URL
-const scriptURL = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SCRIPT_URL || '';
-
-// EmailJS configuration
-const EMAILJS_SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID || '';
-const EMAILJS_TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID || '';
-const EMAILJS_PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY || '';
-const MANAGER_EMAIL = process.env.NEXT_PUBLIC_MANAGER_EMAIL || '';
-
 export default function DailyUpdateForm({ 
-  reportingManager, 
-  userEmail = '', 
-  userName = '', 
-  teamName = '',
-  isManager = false 
+  userEmail, 
+  userName, 
+  reportingManager,
+  teamName,
+  isManager 
 }: DailyUpdateFormProps) {
-  // Initialize EmailJS
-  useEffect(() => {
-    if (EMAILJS_PUBLIC_KEY) {
-      emailjs.init(EMAILJS_PUBLIC_KEY);
-    } else {
-      console.error('EmailJS Public Key is missing. Email functionality will not work.');
-    }
-  }, []);
-
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [loadingTeams, setLoadingTeams] = useState(true);
+  const [selectedTeam, setSelectedTeam] = useState('');
   const [currentDate, setCurrentDate] = useState('');
   const [formData, setFormData] = useState({
-    time: new Date().toISOString(),
-    employeeName: userName || '',
-    task: '',
-    status: '',
-    help: '',
-    notes: '',
-    team: teamName || '',
+    employee_name: userName || '',
+    employee_id: '',
+    email_address: userEmail || '',
+    tasks_completed: '',
+    status: 'in-progress',
+    additional_notes: '',
   });
-
-  // Add email state with pre-populated value if provided
-  const [email, setEmail] = useState(userEmail || '');
-  
-  // Add blockers state as an array
   const [blockers, setBlockers] = useState<Blocker[]>([]);
-  
-  // State for showing historical data
-  const [showHistoricalData, setShowHistoricalData] = useState(false);
-  const [historicalData, setHistoricalData] = useState<any[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-
-  // Add animation state
-  const [showAnimation, setShowAnimation] = useState(false);
-  
-  // Add blocker form visibility state
   const [showBlockerForm, setShowBlockerForm] = useState(false);
   const [currentBlocker, setCurrentBlocker] = useState<Partial<Blocker>>({
-    type: 'Issue',
+    type: 'Blockers',
     description: '',
-    resolutionDate: ''
+    expected_resolution_date: '',
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAnimation, setShowAnimation] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    // Format the current date
+    fetchUserTeams();
     const date = new Date();
     const options: Intl.DateTimeFormatOptions = { 
       weekday: 'long', 
@@ -90,295 +57,254 @@ export default function DailyUpdateForm({
       day: 'numeric' 
     };
     setCurrentDate(date.toLocaleDateString('en-US', options));
-  }, []);
+  }, [userEmail]);
 
-  // Function to handle adding a new blocker
+  const fetchUserTeams = async () => {
+    try {
+      setLoadingTeams(true);
+      console.log('Fetching teams for user email:', userEmail);
+      
+      // First try to get teams the user is a member of
+      const { data: teamMemberships, error: membershipError } = await supabase
+        .from('aditi_team_members')
+        .select('team_id')
+        .eq('employee_email', userEmail);
+
+      if (membershipError) {
+        console.error('Error fetching team memberships:', membershipError);
+      }
+
+      // If user has team memberships, get those teams
+      if (teamMemberships && teamMemberships.length > 0) {
+        console.log('User has team memberships:', teamMemberships);
+        const teamIds = teamMemberships.map(tm => tm.team_id);
+        const { data: teamsData, error: teamsError } = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .in('id', teamIds);
+
+        if (teamsError) {
+          console.error('Error fetching specific teams:', teamsError);
+          throw teamsError;
+        }
+        setTeams(teamsData || []);
+        console.log('Teams loaded from memberships:', teamsData);
+      } else {
+        // If no memberships found, fetch all teams
+        console.log('No team memberships found, fetching all teams');
+        const { data: allTeams, error: allTeamsError } = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .order('team_name', { ascending: true });
+
+        if (allTeamsError) {
+          console.error('Error fetching all teams:', allTeamsError);
+          throw allTeamsError;
+        }
+        
+        setTeams(allTeams || []);
+        console.log('All teams loaded:', allTeams);
+      }
+    } catch (error) {
+      console.error('Error fetching teams:', error);
+      toast.error('Failed to load teams');
+    } finally {
+      setLoadingTeams(false);
+    }
+  };
+
   const handleAddBlocker = () => {
-    if (!currentBlocker.description || !currentBlocker.resolutionDate) {
+    if (!currentBlocker.description || !currentBlocker.expected_resolution_date) {
       toast.error('Please fill in all blocker fields');
       return;
     }
 
     const newBlocker: Blocker = {
       id: Date.now().toString(),
-      type: currentBlocker.type as 'Risk' | 'Issue' | 'Dependency' | 'Blocker',
+      type: currentBlocker.type as 'Blockers' | 'Risks' | 'Dependencies',
       description: currentBlocker.description,
-      resolutionDate: currentBlocker.resolutionDate
+      expected_resolution_date: currentBlocker.expected_resolution_date
     };
 
     setBlockers([...blockers, newBlocker]);
-    
-    // Reset current blocker form
     setCurrentBlocker({
-      type: 'Issue',
+      type: 'Blockers',
       description: '',
-      resolutionDate: ''
+      expected_resolution_date: '',
     });
-    
-    // Hide blocker form after adding
     setShowBlockerForm(false);
   };
 
-  // Function to remove a blocker
   const handleRemoveBlocker = (id: string) => {
     setBlockers(blockers.filter(blocker => blocker.id !== id));
   };
 
-  // Function to fetch historical data
-  const fetchHistoricalData = async () => {
-    setIsLoadingHistory(true);
-    try {
-      let query = supabase
-        .from('daily_updates')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      // If not manager, restrict to current user's data
-      if (!isManager && email) {
-        query = query.eq('email', email);
-      } 
-      // If manager and team name is provided, restrict to team data
-      else if (isManager && teamName) {
-        query = query.eq('team', teamName);
-      }
-      
-      const { data, error } = await query;
-      
-      if (error) {
-        throw error;
-      }
-      
-      setHistoricalData(data || []);
-    } catch (error) {
-      console.error('Error fetching historical data:', error);
-      toast.error('Failed to load historical data');
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  };
-
-  // Function to export data to CSV for managers
-  const exportToCSV = () => {
-    if (!historicalData.length) return;
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
     
-    const headers = Object.keys(historicalData[0]).join(',');
-    const csvRows = [headers];
-    
-    for (const row of historicalData) {
-      const values = Object.values(row).map(value => {
-        const stringValue = String(value).replace(/"/g, '""');
-        return `"${stringValue}"`;
-      });
-      csvRows.push(values.join(','));
+    if (!formData.employee_name.trim()) {
+      errors.employee_name = "Employee name is required";
     }
     
-    const csvString = csvRows.join('\n');
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `team_updates_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const sendEmail = async (formData: any) => {
-    try {
-      // Format blockers for email
-      const blockersText = blockers.length 
-        ? blockers.map(b => `Type: ${b.type}\nDescription: ${b.description}\nResolution Date: ${b.resolutionDate}`).join('\n\n')
-        : 'None';
-
-      const templateParams = {
-        to_name: reportingManager,
-        from_name: formData.employeeName,
-        to_email: MANAGER_EMAIL,
-        from_email: email,
-        employee_name: formData.employeeName,
-        manager_email: reportingManager,
-        tasks_completed: formData.task,
-        blockers: blockersText,
-        status: formData.status,
-        help_needed: formData.help || 'None',
-        notes: formData.notes || 'None',
-        date: currentDate,
-        reply_to: email,
-        team: formData.team || 'Not specified',
-        message: `
-Dear ${reportingManager},
-
-A new daily update has been submitted:
-
-Employee: ${formData.employeeName}
-Date: ${currentDate}
-Team: ${formData.team || 'Not specified'}
-
-Tasks Completed:
-${formData.task}
-
-Status: ${formData.status}
-
-Blockers:
-${blockersText}
-
-Help Needed:
-${formData.help || 'None'}
-
-Additional Notes:
-${formData.notes || 'None'}
-
-Best regards,
-Daily Updates System
-      `
-      };
-
-      console.log('Starting email send with updated params...');
-      console.log('Service ID:', EMAILJS_SERVICE_ID);
-      console.log('Template ID:', EMAILJS_TEMPLATE_ID);
-      console.log('Template params:', JSON.stringify(templateParams, null, 2));
-
-      const response = await emailjs.send(
-        EMAILJS_SERVICE_ID,
-        EMAILJS_TEMPLATE_ID,
-        templateParams
-      );
-
-      console.log('Email sent successfully. Response:', response);
-      toast.success('Email sent successfully to manager!');
-      return true;
-    } catch (error) {
-      console.error('Email sending failed. Full error:', error);
-      console.error('Error details:', {
-        serviceId: EMAILJS_SERVICE_ID,
-        templateId: EMAILJS_TEMPLATE_ID,
-        hasPublicKey: !!EMAILJS_PUBLIC_KEY,
-        recipientEmail: MANAGER_EMAIL,
-        senderEmail: email
-      });
-      toast.error(`Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw error;
+    if (!formData.employee_id.trim()) {
+      errors.employee_id = "Employee ID is required";
     }
+    
+    if (!formData.email_address.trim()) {
+      errors.email_address = "Email address is required";
+    } else if (!/\S+@\S+\.\S+/.test(formData.email_address)) {
+      errors.email_address = "Email address is invalid";
+    }
+    
+    if (!selectedTeam) {
+      errors.team = "Team selection is required";
+    }
+    
+    if (!formData.tasks_completed.trim()) {
+      errors.tasks_completed = "Tasks completed is required";
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Form submission started');
+    console.log('Form data:', formData);
+    console.log('Selected team:', selectedTeam);
+    console.log('Blockers:', blockers);
+    
+    // Validate form
+    if (!validateForm()) {
+      console.log('Form validation failed:', formErrors);
+      toast.error('Please fill all required fields correctly');
+      return;
+    }
+
     setIsSubmitting(true);
-    setSubmitStatus(null);
-    setShowAnimation(false);
-
     try {
-      const form = e.target as HTMLFormElement;
-      
-      // Format blockers for database storage
-      const blockersData = blockers.length ? JSON.stringify(blockers) : null;
-      
-      // Prepare data for Supabase
-      const supabaseData = {
-        employee_name: formData.employeeName,
-        tasks_completed: formData.task,
-        blockers: blockersData,
-        status: formData.status,
-        help_needed: formData.help || null,
-        notes: formData.notes || null,
-        created_at: new Date().toISOString(),
-        email: email,
-        team: formData.team || null
-      };
-
-      console.log('Sending data to Supabase:', supabaseData);
-
-      // Save to Supabase database
-      const { data: supabaseResponse, error: supabaseError } = await supabase
-        .from('daily_updates')
-        .insert([supabaseData])
-        .select();
-
-      if (supabaseError) {
-        console.error('Supabase Error:', supabaseError);
-        throw new Error('Failed to save to database: ' + supabaseError.message);
-      }
-
-      // Send email notification
-      await sendEmail(formData);
-
-      console.log('Successfully saved to Supabase:', supabaseResponse);
-
-      // Also save to Google Sheets if needed
-      const formDataToSend = new FormData(form);
-      formDataToSend.append('time', new Date().toISOString());
-      formDataToSend.append('email', email);
-      formDataToSend.append('team', formData.team || '');
-      
-      // Add blockers data to form data
-      formDataToSend.append('blockers', blockersData || '');
-
-      const sheetResponse = await fetch(scriptURL, {
-        method: 'POST',
-        body: formDataToSend
-      });
-
-      if (!sheetResponse.ok) {
-        throw new Error('Google Sheets Error: ' + sheetResponse.statusText);
-      }
-
-      setSubmitStatus({
-        type: 'success',
-        message: 'Update submitted successfully! Email notification sent.'
+      console.log('Submitting daily update:', {
+        formData,
+        selectedTeam,
+        blockers,
       });
       
-      // Trigger animation
-      setShowAnimation(true);
-      
-      // Clear form after successful submission
+      // If there are no blockers, create a single update without blocker info
+      if (blockers.length === 0) {
+        console.log('Submitting single update without blockers');
+        const payload = {
+          employee_name: formData.employee_name,
+          employee_id: formData.employee_id,
+          employee_email: formData.email_address,
+          team_id: selectedTeam,
+          tasks_completed: formData.tasks_completed,
+          status: formData.status,
+          additional_notes: formData.additional_notes
+        };
+        console.log('Payload being sent to Supabase:', payload);
+        
+        const { data, error } = await supabase
+          .from('aditi_daily_updates')
+          .insert([payload])
+          .select();
+
+        if (error) {
+          console.error('Error submitting daily update:', error);
+          throw new Error(`Database error: ${error.message}`);
+        }
+        
+        console.log('Daily update submitted successfully:', data);
+      } else {
+        // Insert each blocker as a separate daily update
+        console.log(`Submitting ${blockers.length} updates with blockers`);
+        const updates = blockers.map(blocker => ({
+          employee_name: formData.employee_name,
+          employee_id: formData.employee_id,
+          employee_email: formData.email_address,
+          team_id: selectedTeam,
+          tasks_completed: formData.tasks_completed,
+          status: formData.status,
+          additional_notes: formData.additional_notes,
+          blocker_type: blocker.type,
+          blocker_description: blocker.description,
+          expected_resolution_date: blocker.expected_resolution_date,
+        }));
+        
+        console.log('Payload being sent to Supabase:', updates);
+        
+        const { data, error } = await supabase
+          .from('aditi_daily_updates')
+          .insert(updates)
+          .select();
+
+        if (error) {
+          console.error('Error submitting daily updates with blockers:', error);
+          console.error('Error details:', JSON.stringify(error));
+          throw new Error(`Database error: ${error.message}`);
+        }
+        
+        console.log('Daily updates with blockers submitted successfully:', data);
+      }
+
+      toast.success('Daily update submitted successfully!');
       setFormData({
-        time: new Date().toISOString(),
-        employeeName: userName || '',
-        task: '',
-        status: '',
-        help: '',
-        notes: '',
-        team: teamName || '',
+        employee_name: userName || '',
+        employee_id: '',
+        email_address: userEmail || '',
+        tasks_completed: '',
+        status: 'in-progress',
+        additional_notes: '',
       });
-      
-      // Don't clear email if pre-populated
-      if (!userEmail) {
-        setEmail('');
-      }
-      
-      // Clear blockers
       setBlockers([]);
-
-      // Hide animation after 5 seconds
-      setTimeout(() => {
-        setShowAnimation(false);
-      }, 5000);
-
+      
+      setShowAnimation(true);
+      setTimeout(() => setShowAnimation(false), 5000);
     } catch (error) {
-      console.error('Error:', error);
-      setSubmitStatus({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to submit update. Please try again.'
-      });
+      console.error('Error submitting update:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to submit update';
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
+      console.log('Form submission process completed');
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear validation error for this field when value changes
+    if (formErrors[name]) {
+      setFormErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
   };
 
-  // Handle blocker change
   const handleBlockerChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setCurrentBlocker({
-      ...currentBlocker,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+    setCurrentBlocker(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+  
+  // Also update team selection to clear errors
+  const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedTeam(e.target.value);
+    
+    // Clear team validation error when value changes
+    if (formErrors.team) {
+      setFormErrors(prev => ({
+        ...prev,
+        team: ''
+      }));
+    }
   };
 
   return (
@@ -395,207 +321,158 @@ Daily Updates System
             <h1 className="text-2xl sm:text-3xl font-bold mb-2 bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent hover:from-purple-500 hover:to-purple-700 transition-all duration-300">
               Daily Employee Updates
             </h1>
-            <div className="text-gray-400 hover:text-gray-300 transition-colors duration-300">
-              <span className="mr-2">Reporting Manager:</span>
-              <span className="font-medium">{reportingManager}</span>
-            </div>
-            
-            {/* Manager Controls - Only visible to managers */}
-            {isManager && (
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <button
-                  onClick={() => {
-                    setShowHistoricalData(!showHistoricalData);
-                    if (!showHistoricalData) {
-                      fetchHistoricalData();
-                    }
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors duration-300"
-                >
-                  {showHistoricalData ? 'Hide' : 'View'} Team Data
-                </button>
-                
-                {historicalData.length > 0 && (
-                  <button
-                    onClick={exportToCSV}
-                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors duration-300"
-                  >
-                    Export Data (CSV)
-                  </button>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* Historical Data Section */}
-          {showHistoricalData && (
-            <div className="mb-8 bg-[#262d40] rounded-lg p-4 overflow-x-auto">
-              <h2 className="text-xl font-semibold mb-4 text-purple-400">Historical Data</h2>
-              
-              {isLoadingHistory ? (
-                <div className="flex justify-center items-center p-8">
-                  <svg className="animate-spin h-8 w-8 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                </div>
-              ) : historicalData.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-700">
-                    <thead>
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Employee</th>
-                        {isManager && <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Team</th>}
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Details</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-700">
-                      {historicalData.map((entry, index) => (
-                        <tr key={index} className="hover:bg-[#2a3347] transition-colors duration-200">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            {new Date(entry.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">{entry.employee_name}</td>
-                          {isManager && <td className="px-6 py-4 whitespace-nowrap text-sm">{entry.team || '-'}</td>}
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium
-                              ${entry.status === 'completed' ? 'bg-green-500/20 text-green-400' : 
-                                entry.status === 'in-progress' ? 'bg-blue-500/20 text-blue-400' : 
-                                'bg-red-500/20 text-red-400'}`}>
-                              {entry.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <button 
-                              className="text-purple-400 hover:text-purple-300 underline"
-                              onClick={() => {
-                                // Show details modal or expand row (simplified for this example)
-                                alert(`Tasks: ${entry.tasks_completed}\n\nBlockers: ${entry.blockers || 'None'}`);
-                              }}
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-center text-gray-400 py-4">No historical data available.</p>
-              )}
-            </div>
-          )}
-
-          {/* Status Message */}
-          {submitStatus && (
-            <div className={`mb-6 p-4 rounded-md ${
-              submitStatus.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
-            }`}>
-              {submitStatus.message}
-            </div>
-          )}
-
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Team Selection */}
-            <div className="group">
-              <label htmlFor="team" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
-                Team <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="team"
-                name="team"
-                value={formData.team}
-                onChange={handleChange}
-                disabled={!!teamName} // Disable if team is pre-populated
-                className={`w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white 
-                focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
-                transition-all duration-300 ease-in-out
-                hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                transform hover:-translate-y-0.5
-                appearance-none cursor-pointer
-                ${teamName ? 'opacity-75 cursor-not-allowed' : ''}`}
-                required
-              >
-                <option value="">Select your team</option>
-                <option value="Development">Development</option>
-                <option value="Design">Design</option>
-                <option value="QA">QA</option>
-                <option value="Project Management">Project Management</option>
-                <option value="Business Analysis">Business Analysis</option>
-              </select>
+            {/* Employee Information Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="group">
+                <label htmlFor="employee_name" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
+                  Employee Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="employee_name"
+                  name="employee_name"
+                  value={formData.employee_name}
+                  onChange={handleChange}
+                  required
+                  className={`w-full bg-[#262d40] border ${formErrors.employee_name ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
+                  focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
+                  transition-all duration-300 ease-in-out
+                  hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
+                  transform hover:-translate-y-0.5`}
+                  placeholder="Enter your name"
+                />
+                {formErrors.employee_name && (
+                  <p className="mt-1 text-sm text-red-500">{formErrors.employee_name}</p>
+                )}
+              </div>
+
+              <div className="group">
+                <label htmlFor="employee_id" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
+                  Employee ID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="employee_id"
+                  name="employee_id"
+                  value={formData.employee_id}
+                  onChange={handleChange}
+                  required
+                  className={`w-full bg-[#262d40] border ${formErrors.employee_id ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
+                  focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
+                  transition-all duration-300 ease-in-out
+                  hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
+                  transform hover:-translate-y-0.5`}
+                  placeholder="Enter your employee ID"
+                />
+                {formErrors.employee_id && (
+                  <p className="mt-1 text-sm text-red-500">{formErrors.employee_id}</p>
+                )}
+              </div>
+
+              <div className="group">
+                <label htmlFor="email_address" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
+                  Email Address <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  id="email_address"
+                  name="email_address"
+                  value={formData.email_address}
+                  onChange={handleChange}
+                  required
+                  className={`w-full bg-[#262d40] border ${formErrors.email_address ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
+                  focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
+                  transition-all duration-300 ease-in-out
+                  hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
+                  transform hover:-translate-y-0.5`}
+                  placeholder="Enter your email address"
+                />
+                {formErrors.email_address && (
+                  <p className="mt-1 text-sm text-red-500">{formErrors.email_address}</p>
+                )}
+              </div>
+
+              <div className="group">
+                <label htmlFor="team" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
+                  Team <span className="text-red-500">*</span>
+                </label>
+                {loadingTeams ? (
+                  <div className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white flex items-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Loading teams...</span>
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      id="team"
+                      name="team"
+                      value={selectedTeam}
+                      onChange={handleTeamChange}
+                      className={`w-full bg-[#262d40] border ${formErrors.team ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white 
+                      focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
+                      transition-all duration-300 ease-in-out
+                      hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
+                      transform hover:-translate-y-0.5
+                      appearance-none cursor-pointer`}
+                      required
+                    >
+                      <option value="">Select your team</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.team_name}
+                        </option>
+                      ))}
+                    </select>
+                    {formErrors.team && (
+                      <p className="mt-1 text-sm text-red-500">{formErrors.team}</p>
+                    )}
+                    {!loadingTeams && teams.length === 0 && (
+                      <div className="mt-2 p-3 bg-yellow-500/20 text-yellow-400 rounded-md">
+                        <p className="flex items-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          No teams available. Please visit the Team Management page to create a team first.
+                        </p>
+                        <a href="/team-management" className="mt-2 inline-block text-white bg-purple-600 hover:bg-purple-700 transition-colors duration-300 rounded-md px-4 py-2 text-sm font-medium">
+                          Go to Team Management
+                        </a>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
 
-            {/* Employee Name */}
+            {/* Tasks Completed Section */}
             <div className="group">
-              <label htmlFor="employeeName" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
-                Employee Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                id="employeeName"
-                name="employeeName"
-                value={formData.employeeName}
-                onChange={handleChange}
-                placeholder="Enter your full name"
-                disabled={!!userName} // Disable if name is pre-populated
-                className={`w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white placeholder-gray-400 
-                focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
-                transition-all duration-300 ease-in-out
-                hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                transform hover:-translate-y-0.5
-                ${userName ? 'opacity-75 cursor-not-allowed' : ''}`}
-                required
-                autoComplete="name"
-              />
-            </div>
-
-            {/* Email Input */}
-            <div className="group">
-              <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
-                Email Address <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="email"
-                id="email"
-                name="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email address"
-                disabled={!!userEmail} // Disable if email is pre-populated
-                className={`w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white placeholder-gray-400 
-                focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
-                transition-all duration-300 ease-in-out
-                hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                transform hover:-translate-y-0.5
-                ${userEmail ? 'opacity-75 cursor-not-allowed' : ''}`}
-                required
-              />
-            </div>
-
-            {/* Tasks Completed */}
-            <div className="group">
-              <label htmlFor="task" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
-                Tasks <span className="text-red-500">*</span>
+              <label htmlFor="tasks_completed" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
+                Tasks Completed <span className="text-red-500">*</span>
               </label>
               <textarea
-                id="task"
-                name="task"
-                value={formData.task}
+                id="tasks_completed"
+                name="tasks_completed"
+                value={formData.tasks_completed}
                 onChange={handleChange}
-                placeholder="List the tasks you completed today"
-                rows={4}
-                className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white placeholder-gray-400 
+                className={`w-full bg-[#262d40] border ${formErrors.tasks_completed ? 'border-red-500' : 'border-gray-600'} rounded-md px-4 py-3 text-white placeholder-gray-400 
                 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
                 transition-all duration-300 ease-in-out
                 hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
                 transform hover:-translate-y-0.5
-                resize-none"
+                resize-none`}
+                rows={4}
                 required
+                placeholder="Describe the tasks you completed today"
               />
+              {formErrors.tasks_completed && (
+                <p className="mt-1 text-sm text-red-500">{formErrors.tasks_completed}</p>
+              )}
             </div>
 
             {/* Blockers Section */}
@@ -627,14 +504,13 @@ Daily Updates System
                       <div>
                         <div className="flex items-center space-x-2 mb-1">
                           <span className={`inline-block px-2 py-1 text-xs rounded-full ${
-                            blocker.type === 'Risk' ? 'bg-yellow-500/20 text-yellow-400' :
-                            blocker.type === 'Issue' ? 'bg-red-500/20 text-red-400' :
-                            blocker.type === 'Dependency' ? 'bg-blue-500/20 text-blue-400' :
-                            'bg-orange-500/20 text-orange-400'
+                            blocker.type === 'Risks' ? 'bg-yellow-500/20 text-yellow-400' :
+                            blocker.type === 'Blockers' ? 'bg-red-500/20 text-red-400' :
+                            'bg-blue-500/20 text-blue-400'
                           }`}>
                             {blocker.type}
                           </span>
-                          <span className="text-xs text-gray-400">Resolution: {new Date(blocker.resolutionDate).toLocaleDateString()}</span>
+                          <span className="text-xs text-gray-400">Resolution: {new Date(blocker.expected_resolution_date).toLocaleDateString()}</span>
                         </div>
                         <p className="text-sm text-gray-300">{blocker.description}</p>
                       </div>
@@ -670,10 +546,9 @@ Daily Updates System
                         appearance-none cursor-pointer"
                         required
                       >
-                        <option value="Issue">Issue</option>
-                        <option value="Risk">Risk</option>
-                        <option value="Dependency">Dependency</option>
-                        <option value="Blocker">Blocker</option>
+                        <option value="Blockers">Blockers</option>
+                        <option value="Risks">Risks</option>
+                        <option value="Dependencies">Dependencies</option>
                       </select>
                     </div>
                     <div>
@@ -683,8 +558,8 @@ Daily Updates System
                       <input
                         type="date"
                         id="resolutionDate"
-                        name="resolutionDate"
-                        value={currentBlocker.resolutionDate}
+                        name="expected_resolution_date"
+                        value={currentBlocker.expected_resolution_date}
                         onChange={handleBlockerChange}
                         className="w-full bg-[#2a3347] border border-gray-600 rounded-md px-4 py-2 text-white
                         focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -732,10 +607,9 @@ Daily Updates System
               )}
             </div>
 
-            {/* Task Status */}
             <div className="group">
               <label htmlFor="status" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
-                Task Status <span className="text-red-500">*</span>
+                Status <span className="text-red-500">*</span>
               </label>
               <select
                 id="status"
@@ -750,56 +624,31 @@ Daily Updates System
                 appearance-none cursor-pointer"
                 required
               >
-                <option value="">Select status</option>
-                <option value="completed">Completed</option>
                 <option value="in-progress">In Progress</option>
-                <option value="stuck">Stuck</option>
+                <option value="completed">Completed</option>
+                <option value="blocked">Blocked</option>
               </select>
             </div>
 
-            {/* Help Needed */}
             <div className="group">
-              <label htmlFor="help" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
-                Help Needed
-              </label>
-              <textarea
-                id="help"
-                name="help"
-                value={formData.help}
-                onChange={handleChange}
-                placeholder="Describe what kind of help you need"
-                rows={4}
-                className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white placeholder-gray-400 
-                focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
-                transition-all duration-300 ease-in-out
-                hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
-                transform hover:-translate-y-0.5
-                resize-none"
-              />
-            </div>
-
-            {/* Additional Notes */}
-            <div className="group">
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
+              <label htmlFor="additional_notes" className="block text-sm font-medium text-gray-300 mb-2 group-hover:text-purple-400 transition-colors duration-300">
                 Additional Notes
               </label>
               <textarea
-                id="notes"
-                name="notes"
-                value={formData.notes}
+                id="additional_notes"
+                name="additional_notes"
+                value={formData.additional_notes}
                 onChange={handleChange}
-                placeholder="Any additional comments or notes"
-                rows={4}
                 className="w-full bg-[#262d40] border border-gray-600 rounded-md px-4 py-3 text-white placeholder-gray-400 
                 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent 
                 transition-all duration-300 ease-in-out
                 hover:bg-[#2a3347] hover:border-purple-500 hover:shadow-lg
                 transform hover:-translate-y-0.5
                 resize-none"
+                rows={3}
               />
             </div>
 
-            {/* Submit Button */}
             <div className="relative">
               <button
                 type="submit"

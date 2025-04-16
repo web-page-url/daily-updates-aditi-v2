@@ -1,63 +1,54 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../../lib/supabaseClient';
+import { NextApiRequest, NextApiResponse } from 'next';
+import { createClient } from '@supabase/supabase-js';
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    // Test connection by trying to query the table
-    const { data, error, count } = await supabase
-      .from('Aditi_team_members')
-      .select('*', { count: 'exact' })
-      .limit(5);
-
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        message: 'Supabase connection error',
-        error: error.message,
-        details: error
+    // Create a Supabase client with the service role key for admin privileges
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // Get the table name from the query parameters or use a default
+    const tableName = req.query.table as string || 'aditi_daily_updates';
+    
+    // Test connection by getting schema information
+    const { data: schemaData, error: schemaError } = await supabase
+      .from(tableName)
+      .select('*')
+      .limit(1);
+      
+    if (schemaError) {
+      console.error(`Error fetching schema for ${tableName}:`, schemaError);
+      return res.status(500).json({ 
+        success: false, 
+        error: schemaError.message,
+        details: `Failed to get schema for ${tableName}`
       });
     }
 
-    // Try to insert a test record
-    const testRecord = {
-      team_name: 'TEST_TEAM',
-      employee_id: 'TEST_' + Date.now(),
-      manager_name: 'TEST_MANAGER',
-      team_member_name: 'TEST_EMPLOYEE'
-    };
+    // Get list of tables in public schema
+    const { data: tableList, error: tableListError } = await supabase
+      .rpc('get_tables');
 
-    const { data: insertData, error: insertError } = await supabase
-      .from('Aditi_team_members')
-      .insert([testRecord])
-      .select();
-
-    // Respond with the results
+    // Get column information for the specified table
+    const { data: columnInfo, error: columnError } = await supabase
+      .rpc('get_columns', { table_name: tableName });
+      
     return res.status(200).json({
       success: true,
-      message: 'Connection to Supabase successful',
-      connectionDetails: {
-        url: process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Set' : 'Not set',
-        key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Set' : 'Not set'
-      },
-      existingData: {
-        count,
-        records: data
-      },
-      testInsert: {
-        success: !insertError,
-        error: insertError ? insertError.message : null,
-        data: insertData
-      }
+      message: 'Supabase connection successful',
+      tableExampleData: schemaData,
+      tables: tableList || [],
+      columns: columnInfo || [],
+      tableName: tableName
     });
-  } catch (err) {
-    const error = err as Error;
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to test Supabase connection',
-      error: error.message
+  } catch (error) {
+    console.error('API route error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
   }
 } 

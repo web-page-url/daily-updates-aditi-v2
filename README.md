@@ -1,151 +1,74 @@
-# Daily Updates for Aditi
+# Aditi Daily Updates
 
-A web application for Aditi employees to submit their daily work updates.
+A modern web application for tracking and managing daily employee updates and task progress.
 
-## Environment Setup
-
-This project uses environment variables for configuration. Before running the project, you need to set up these variables:
-
-1. Copy the example environment file:
-   ```bash
-   cp .env.example .env.local
-   ```
-
-2. Fill in your actual values in the `.env.local` file:
-   - **Supabase Configuration**: Your Supabase URL and anonymous key
-   - **EmailJS Configuration**: Your EmailJS service ID, template ID, public key, and manager email
-   - **Google Sheets Configuration**: Your Google Sheets script URL
-
-## Getting Started
-
-First, install the dependencies:
-
-```bash
-npm install
-```
-
-Then, run the development server:
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-## Building for Production
-
-```bash
-npm run build
-```
-
-To serve the static files locally:
-
-```bash
-npx serve out
-```
+![Aditi Daily Updates](public/aditi.png)
 
 ## Features
 
-- Submit daily work updates
-- Store updates in Supabase
-- Send email notifications
-- Integration with Google Sheets
+- **OTP Authentication**: Secure email-based one-time password login
+- **Role-Based Access Control**:
+  - Admins: View all updates across all teams
+  - Managers: View updates from their teams
+  - Users: View and submit their own updates
+- **Daily Update Submission**:
+  - Task tracking
+  - Status updates (In Progress, Completed, Blocked)
+  - Blocker/Risk/Dependency tracking
+- **Responsive Dashboard**:
+  - Filtering by date, team, and status
+  - Detailed view of all updates
+  - Statistics and metrics
+- **Mobile-Responsive Design**: Works on all devices
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+## Technology Stack
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+- **Frontend**: Next.js with TypeScript
+- **Styling**: Tailwind CSS
+- **Backend**: Supabase (PostgreSQL database, Authentication, Row-Level Security)
+- **Deployment**: Netlify / Vercel
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+## Getting Started
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Please refer to the [SETUP.md](SETUP.md) file for detailed instructions on how to set up and run the application.
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
-
-### Best Practices
-- Component-based architecture
-- TypeScript for type safety
-- Clean code principles
-- Comprehensive error handling
-- Regular testing
-
-### Adding New Features
-1. Create feature branch
-2. Implement changes
-3. Add tests
-4. Submit PR for review
-
-## Deployment
-
-### Vercel Deployment
-1. Connect to GitHub repository
-2. Configure environment variables
-3. Deploy automatically
-
-```bash
-# Manual deployment
-vercel
+```
+├── public/                  # Static assets
+├── src/
+│   ├── components/          # Reusable UI components
+│   ├── lib/                 # Utility functions and shared logic
+│   ├── pages/               # Next.js pages
+│   └── styles/              # Global styles
+├── sql/                     # SQL schema and migrations
+├── .env.example             # Example environment variables
+├── README.md                # This file
+└── SETUP.md                 # Setup instructions
 ```
 
-### Alternative Deployment
-```bash
-# Build for production
-npm run build
+## Screenshots
 
-# Serve static files
-npx serve out
-```
+### Login Page
+![Login Page](public/screenshots/login.png)
 
-## Future Enhancements
+### User Dashboard
+![User Dashboard](public/screenshots/user-dashboard.png)
 
-### Planned Features
-- Real-time collaboration
-- Advanced analytics dashboard
-- Custom report generation
-- Mobile application
-- Integration with project management tools
+### Manager/Admin Dashboard
+![Admin Dashboard](public/screenshots/admin-dashboard.png)
 
-### Scalability Considerations
-- Database optimization
-- Load balancing
-- Caching implementation
-- Performance monitoring
-
-## Learn More
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Supabase Documentation](https://supabase.io/docs)
-- [EmailJS Documentation](https://www.emailjs.com/docs)
-- [Tailwind CSS Documentation](https://tailwindcss.com/docs)
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Commit changes
-4. Push to branch
-5. Submit Pull Request
-
-## Support
-
-For support, email support@aditi.com or join our Slack channel.
+### Daily Update Form
+![Daily Update Form](public/screenshots/update-form.png)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+This project is proprietary and confidential to Aditi Consulting.
+
+## Support
+
+For any questions or support needs, please contact the development team.
 
 ---
 
-Built with ❤️ by Aditi Development Team
+© 2023 Aditi Consulting. All rights reserved.
