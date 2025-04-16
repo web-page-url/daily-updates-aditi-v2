@@ -3,11 +3,30 @@ import type { AppProps } from "next/app";
 import { Toaster } from 'react-hot-toast';
 import Head from 'next/head';
 import { AuthProvider } from "@/lib/authContext";
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
+  const [isAdminRoute, setIsAdminRoute] = useState(false);
+
+  // Route-specific handling
+  useEffect(() => {
+    // Check if current route is an admin/manager route
+    const adminRouteCheck = () => {
+      const isAdmin = router.pathname === '/dashboard' || 
+                      router.pathname.includes('/team-management') || 
+                      router.pathname.includes('/admin');
+      setIsAdminRoute(isAdmin);
+    };
+    
+    adminRouteCheck();
+    router.events.on('routeChangeComplete', adminRouteCheck);
+    
+    return () => {
+      router.events.off('routeChangeComplete', adminRouteCheck);
+    };
+  }, [router.pathname, router.events]);
 
   // Global loading state timeout handler
   useEffect(() => {
@@ -15,11 +34,14 @@ export default function App({ Component, pageProps }: AppProps) {
     const html = document.documentElement;
     html.classList.add('js-loading');
     
-    // Force remove loading class after 8 seconds max
+    // Force remove loading class after timeout
+    // Use shorter timeout for admin routes since they have their own handling
+    const timeoutDuration = isAdminRoute ? 5000 : 8000;
+    
     const globalTimeout = setTimeout(() => {
       html.classList.remove('js-loading');
-      console.log('Global loading safety timeout reached');
-    }, 8000);
+      console.log(`Global loading safety timeout reached (${isAdminRoute ? 'admin route' : 'standard route'})`);
+    }, timeoutDuration);
     
     // Listen for route change end
     const handleRouteChangeComplete = () => {
@@ -32,7 +54,7 @@ export default function App({ Component, pageProps }: AppProps) {
       clearTimeout(globalTimeout);
       router.events.off('routeChangeComplete', handleRouteChangeComplete);
     };
-  }, [router]);
+  }, [router, isAdminRoute]);
 
   return (
     <AuthProvider>

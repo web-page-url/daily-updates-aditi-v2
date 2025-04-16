@@ -18,7 +18,8 @@ export default function Dashboard() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingFailed, setLoadingFailed] = useState(false);
   const [historicalData, setHistoricalData] = useState<DailyUpdate[]>([]);
   const [filteredData, setFilteredData] = useState<DailyUpdate[]>([]);
   const [activeTab, setActiveTab] = useState<'all' | 'recent' | 'blockers'>('all');
@@ -47,15 +48,27 @@ export default function Dashboard() {
   const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
+    // Safety timeout to prevent infinite loading
+    const safetyTimeout = setTimeout(() => {
+      if (isLoading) {
+        console.log('Dashboard safety timeout reached');
+        setIsLoading(false);
+        setLoadingFailed(true);
+      }
+    }, 10000);
+    
     if (user) {
       fetchTeamsBasedOnRole();
     }
+    
+    return () => clearTimeout(safetyTimeout);
   }, [user]);
 
   const fetchTeamsBasedOnRole = async () => {
     if (!user) return;
     
     try {
+      setIsLoading(true);
       // Admin can see all teams
       if (user.role === 'admin') {
         const { data, error } = await supabase
@@ -65,6 +78,7 @@ export default function Dashboard() {
           
         if (error) throw error;
         setTeams(data || []);
+        await fetchData(''); // Begin data fetch immediately after teams are loaded
       } 
       // Manager can only see their teams
       else if (user.role === 'manager') {
@@ -80,6 +94,9 @@ export default function Dashboard() {
         // If manager has exactly one team, auto-select it
         if (data && data.length === 1) {
           setSelectedTeam(data[0].id);
+          await fetchData(data[0].id); // Begin data fetch with the selected team
+        } else {
+          await fetchData(''); // Fetch all teams' data if multiple teams
         }
       }
       // Regular users shouldn't reach this dashboard, but just in case
@@ -91,6 +108,8 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching teams:', error);
       toast.error('Failed to load teams');
+      setIsLoading(false);
+      setLoadingFailed(true);
     }
   };
 
@@ -102,7 +121,7 @@ export default function Dashboard() {
       const timeout = setTimeout(() => {
         setIsLoading(false);
         console.log('Fetch data timeout reached, forcing loading state to false');
-      }, 15000); // 15 seconds max loading time
+      }, 8000); // 8 seconds max loading time
       
       if (loadingTimeout) clearTimeout(loadingTimeout);
       setLoadingTimeout(timeout);
@@ -140,10 +159,27 @@ export default function Dashboard() {
       const { data, error } = await query;
 
       if (error) {
-        // Check for 406 error (Not Acceptable)
-        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
-          console.error('Session token issue detected (406 error). Attempting to refresh session...');
-          
+        // Handle error cases
+        throw error;
+      }
+      
+      setHistoricalData(data || []);
+      setFilteredData(data || []);
+      calculateStats(data || []);
+      setLastRefreshed(new Date());
+      setDataLoaded(true);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      
+      // Check for 406 error (Not Acceptable)
+      if (error && (
+        (error as any).code === '406' || 
+        (error as any).message?.includes('406') || 
+        (error as any).status === 406
+      )) {
+        console.error('Session token issue detected (406 error). Attempting to refresh session...');
+        
+        try {
           // Try to refresh the session
           const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
           
@@ -196,24 +232,21 @@ export default function Dashboard() {
           calculateStats(retryData || []);
           setLastRefreshed(new Date());
           setDataLoaded(true);
-          return;
+        } catch (retryError) {
+          console.error('Error during retry:', retryError);
+          toast.error('Failed to load updates');
+          setHistoricalData([]);
+          setFilteredData([]);
+          calculateStats([]);
+          setLoadingFailed(true);
         }
-        
-        throw error;
+      } else {
+        toast.error('Failed to load updates');
+        setHistoricalData([]);
+        setFilteredData([]);
+        calculateStats([]);
+        setLoadingFailed(true);
       }
-
-      setHistoricalData(data || []);
-      setFilteredData(data || []);
-      calculateStats(data || []);
-      setLastRefreshed(new Date());
-      setDataLoaded(true);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      toast.error('Failed to load updates');
-      // Even in case of error, set empty data to prevent UI from being stuck
-      setHistoricalData([]);
-      setFilteredData([]);
-      calculateStats([]);
     } finally {
       setIsLoading(false);
       if (loadingTimeout) clearTimeout(loadingTimeout);
@@ -411,6 +444,28 @@ export default function Dashboard() {
             {isLoading ? (
               <div className="flex justify-center items-center h-64">
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
+              </div>
+            ) : loadingFailed ? (
+              <div className="bg-[#1e2538] rounded-lg shadow-lg p-6 text-center">
+                <h2 className="text-xl font-semibold text-red-400 mb-4">There was an issue loading the dashboard</h2>
+                <p className="mb-4">We encountered an error while loading your data. Please try again.</p>
+                <div className="flex justify-center space-x-4">
+                  <button 
+                    onClick={() => {
+                      setLoadingFailed(false);
+                      fetchTeamsBasedOnRole();
+                    }}
+                    className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                  >
+                    Retry
+                  </button>
+                  <button 
+                    onClick={() => router.reload()}
+                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+                  >
+                    Reload Page
+                  </button>
+                </div>
               </div>
             ) : (
               <>
