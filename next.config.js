@@ -1,10 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',  // Keep static exports as requested
+  // Removed 'output: export' for dynamic deployment on Vercel
   images: {
-    unoptimized: true, // Required for static export
+    domains: ['vercel.com'], // Add domains you need for external images
   },
-  trailingSlash: true, // Recommended for static exports
+  // Removed trailingSlash setting as it's not needed for Vercel deployment
 }
 
-module.exports = nextConfig 
+module.exports = nextConfig;
